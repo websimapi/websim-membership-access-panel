@@ -2,6 +2,7 @@ export function calculateMembershipData(tipComments, settings) {
     if (!settings || !tipComments) return [];
 
     const memberPayments = {};
+    const defaultRoleId = settings.rolesEnabled ? settings.defaultRoleId : null;
 
     tipComments.forEach(comment => {
         const userId = comment.author.id;
@@ -23,15 +24,20 @@ export function calculateMembershipData(tipComments, settings) {
         const totalPaid = memberData.payments.reduce((sum, p) => sum + p.amount, 0);
         const { price, pricingModel } = settings;
 
-        if (price <= 0) return { ...memberData, totalPaid, membershipEndDate: null, status: 'Invalid Settings' };
+        if (!price || price <= 0) return { ...memberData, user: memberData.user, totalPaid, membershipEndDate: null, status: 'Invalid Settings' };
         
         let totalDurationDays = 0;
+        let paidPeriods = 0;
+        if (price > 0) {
+            paidPeriods = Math.floor(totalPaid / price);
+        }
+
         switch (pricingModel) {
-            case 'daily': totalDurationDays = Math.floor(totalPaid / price); break;
-            case 'weekly': totalDurationDays = Math.floor(totalPaid / price) * 7; break;
-            case 'bi-weekly': totalDurationDays = Math.floor(totalPaid / price) * 14; break;
-            case 'monthly': totalDurationDays = Math.floor(totalPaid / price) * 30; break; // Simplified to 30 days
-            case 'one-day': totalDurationDays = Math.floor(totalPaid / price); break;
+            case 'daily': totalDurationDays = paidPeriods; break;
+            case 'weekly': totalDurationDays = paidPeriods * 7; break;
+            case 'bi-weekly': totalDurationDays = paidPeriods * 14; break;
+            case 'monthly': totalDurationDays = paidPeriods * 30; break; // Simplified to 30 days
+            case 'one-day': totalDurationDays = paidPeriods; break;
             default: totalDurationDays = 0;
         }
 
@@ -55,7 +61,8 @@ export function calculateMembershipData(tipComments, settings) {
             user: memberData.user,
             totalPaid,
             membershipEndDate,
-            status
+            status,
+            role: null, // Role will be merged in the App component
         };
     }).filter(Boolean).sort((a,b) => b.membershipEndDate - a.membershipEndDate);
 }

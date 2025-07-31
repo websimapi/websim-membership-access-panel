@@ -1,0 +1,21 @@
+{
+  "database": {
+    "schema": {
+      "membership_settings_v1": {
+        "price": { "type": "integer" },
+        "pricingModel": { "type": "text" },
+        "rolesEnabled": { "type": "boolean" },
+        "defaultRoleId": { "type": "text" }
+      },
+      "membership_roles_v1": {
+        "name": { "type": "text" },
+        "color": { "type": "text" }
+      },
+      "member_role_assignments_v1": {
+        "id": { "type": "text", "description": "user_id" },
+        "role_id": { "type": "text" }
+      }
+    }
+  }
+}
+

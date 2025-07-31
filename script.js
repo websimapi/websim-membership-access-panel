@@ -1,47 +1,55 @@
 import { calculateMembershipData, getMembershipDurationString } from './utils.js';
+import { WebsimSocket } from '@websim/websim-socket';
 
 const { useState, useEffect, useMemo, useCallback } = React;
 const { createRoot } = ReactDOM;
 
 const room = new WebsimSocket();
 const SETTINGS_COLLECTION = 'membership_settings_v1';
+const ROLES_COLLECTION = 'membership_roles_v1';
+const ASSIGNMENTS_COLLECTION = 'member_role_assignments_v1';
 
 const App = () => {
     const [isCreator, setIsCreator] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
+    const [creator, setCreator] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [settings, setSettings] = useState(null);
+    const [roles, setRoles] = useState([]);
+    const [assignments, setAssignments] = useState([]);
     const [tipComments, setTipComments] = useState([]);
     const [viewMode, setViewMode] = useState('admin');
     
     useEffect(() => {
         const initialize = async () => {
             try {
-                const [creator, user, project] = await Promise.all([
+                const [creatorData, user, project] = await Promise.all([
                     window.websim.getCreator(),
                     window.websim.getCurrentUser(),
                     window.websim.getCurrentProject()
                 ]);
-
+                
+                setCreator(creatorData);
                 setCurrentUser(user);
-                const isUserCreator = user?.id === creator?.id;
+                const isUserCreator = user?.id === creatorData?.id;
                 setIsCreator(isUserCreator);
                 if (!isUserCreator) {
                     setViewMode('member'); // Default for non-creators
                 }
 
-                // Fetch settings for everyone.
-                room.collection(SETTINGS_COLLECTION).subscribe(settingsRecords => {
-                    if (settingsRecords && settingsRecords.length > 0) {
-                        const creatorSettings = settingsRecords
-                            .filter(s => s.username === creator.username)
-                            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                        setSettings(creatorSettings[0] || null);
-                    } else {
-                        setSettings(null);
-                    }
-                });
+                // Fetch settings, roles, and assignments
+                const creatorUsername = creatorData.username;
+                const unsubscribers = [];
+
+                unsubscribers.push(room.collection(SETTINGS_COLLECTION).filter({ username: creatorUsername }).subscribe(settingsRecords => {
+                    const sortedSettings = settingsRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    setSettings(sortedSettings[0] || null);
+                }));
+
+                unsubscribers.push(room.collection(ROLES_COLLECTION).filter({ username: creatorUsername }).subscribe(setRoles));
+                unsubscribers.push(room.collection(ASSIGNMENTS_COLLECTION).filter({ username: creatorUsername }).subscribe(setAssignments));
+
                 
                 // Fetch all tip comments for the project
                 const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
@@ -51,7 +59,7 @@ const App = () => {
                 setTipComments(sortedComments);
                 
                 // Listen for new tips in real-time
-                const unsubscribe = window.websim.addEventListener('comment:created', (eventData) => {
+                const commentUnsubscribe = window.websim.addEventListener('comment:created', (eventData) => {
                     const newComment = eventData.comment;
                     if (newComment.card_data && newComment.card_data.type === 'tip_comment') {
                         setTipComments(prevComments => 
@@ -60,8 +68,9 @@ const App = () => {
                         );
                     }
                 });
+                unsubscribers.push(commentUnsubscribe);
                 
-                return unsubscribe;
+                return () => unsubscribers.forEach(unsub => unsub());
 
             } catch (err) {
                 console.error("Initialization failed:", err);
@@ -81,33 +90,58 @@ const App = () => {
 
     }, []);
 
-    const handleSaveSettings = useCallback(async (newPrice, newModel) => {
+    const handleSaveSettings = useCallback(async (newSettings) => {
         try {
-            const creator = await window.websim.getCreator();
-            const payload = {
-                price: parseInt(newPrice, 10),
-                pricingModel: newModel,
-            };
-            
-            const existingSettings = room.collection(SETTINGS_COLLECTION)
-                .filter({ username: creator.username })
-                .getList();
+            const list = await room.collection(SETTINGS_COLLECTION).filter({ username: creator.username }).getList();
+            const existingSettings = list[0];
 
-            if (existingSettings.length > 0) {
-                 await room.collection(SETTINGS_COLLECTION).update(existingSettings[0].id, payload);
+            if (existingSettings) {
+                 await room.collection(SETTINGS_COLLECTION).upsert({ ...existingSettings, ...newSettings });
             } else {
-                 await room.collection(SETTINGS_COLLECTION).create(payload);
+                 await room.collection(SETTINGS_COLLECTION).create(newSettings);
             }
         } catch (err) {
             console.error("Failed to save settings:", err);
             setError("Could not save settings.");
         }
-    }, []);
+    }, [creator]);
+
+    const handleRoleAction = useCallback(async (action, payload) => {
+        try {
+            switch(action) {
+                case 'create':
+                    await room.collection(ROLES_COLLECTION).create(payload);
+                    break;
+                case 'delete':
+                    await room.collection(ROLES_COLLECTION).delete(payload.id);
+                    // Also unassign this role from any members
+                    const assignmentsToDelete = assignments.filter(a => a.role_id === payload.id);
+                    for (const assignment of assignmentsToDelete) {
+                        await room.collection(ASSIGNMENTS_COLLECTION).delete(assignment.id);
+                    }
+                    break;
+                case 'assign':
+                    await room.collection(ASSIGNMENTS_COLLECTION).upsert({ id: payload.userId, role_id: payload.roleId });
+                    break;
+                case 'unassign':
+                    await room.collection(ASSIGNMENTS_COLLECTION).delete(payload.userId);
+                    break;
+            }
+        } catch(err) {
+            console.error(`Role action '${action}' failed:`, err);
+            setError(`Could not perform role action: ${action}.`);
+        }
+    }, [assignments]);
 
     const members = useMemo(() => {
         if (!settings || tipComments.length === 0) return [];
-        return calculateMembershipData(tipComments, settings);
-    }, [tipComments, settings]);
+        const baseMembers = calculateMembershipData(tipComments, settings);
+        return baseMembers.map(member => {
+            const assignment = assignments.find(a => a.id === member.user.id);
+            const role = assignment ? roles.find(r => r.id === assignment.role_id) : null;
+            return { ...member, role };
+        }).sort((a,b) => (b.membershipEndDate || 0) - (a.membershipEndDate || 0));
+    }, [tipComments, settings, roles, assignments]);
 
     if (loading) {
         return (
@@ -132,8 +166,17 @@ const App = () => {
             if (isCreator && viewMode === 'unpaid') {
                 return null;
             }
-            return members.find(m => m.user.id === currentUser?.id);
-        }, [members, currentUser, isCreator, viewMode]);
+            const member = members.find(m => m.user.id === currentUser?.id);
+            if (!member) return null;
+            
+            // For member view, if roles are enabled and no role is assigned, assign default role if it exists
+            if (settings?.rolesEnabled && !member.role && settings.defaultRoleId) {
+                const defaultRole = roles.find(r => r.id === settings.defaultRoleId);
+                return { ...member, role: defaultRole };
+            }
+            return member;
+
+        }, [members, currentUser, isCreator, viewMode, settings, roles]);
 
         if (currentUserMembership) {
             return <MemberDashboard member={currentUserMembership} settings={settings} />;
@@ -157,8 +200,11 @@ const App = () => {
                     </div>
                 </header>
                 <main className="main-content">
-                    <SettingsSection settings={settings} onSave={handleSaveSettings} />
-                    <MembersSection members={members} />
+                    <SettingsSection settings={settings} roles={roles} onSave={handleSaveSettings} />
+                    {settings?.rolesEnabled && (
+                        <RoleManagementSection roles={roles} onAction={handleRoleAction} />
+                    )}
+                    <MembersSection members={members} roles={roles} onRoleAction={handleRoleAction} rolesEnabled={settings?.rolesEnabled} />
                 </main>
             </div>
         );
@@ -223,20 +269,29 @@ const MembershipPromptSection = ({ settings }) => {
     );
 };
 
-const SettingsSection = ({ settings, onSave }) => {
+const SettingsSection = ({ settings, roles, onSave }) => {
     const [price, setPrice] = useState(100);
     const [model, setModel] = useState('monthly');
+    const [rolesEnabled, setRolesEnabled] = useState(false);
+    const [defaultRoleId, setDefaultRoleId] = useState('');
 
     useEffect(() => {
         if (settings) {
-            setPrice(settings.price);
-            setModel(settings.pricingModel);
+            setPrice(settings.price || 100);
+            setModel(settings.pricingModel || 'monthly');
+            setRolesEnabled(settings.rolesEnabled || false);
+            setDefaultRoleId(settings.defaultRoleId || '');
         }
     }, [settings]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(price, model);
+        onSave({
+            price: parseInt(price, 10),
+            pricingModel: model,
+            rolesEnabled,
+            defaultRoleId,
+        });
     };
 
     return (
@@ -257,13 +312,77 @@ const SettingsSection = ({ settings, onSave }) => {
                     <label htmlFor="price">Price (Credits)</label>
                     <input type="number" id="price" value={price} onChange={e => setPrice(e.target.value)} min="1" />
                 </div>
+                <div className="form-group form-group-toggle">
+                    <label htmlFor="rolesEnabled">Enable Roles</label>
+                    <label className="switch">
+                        <input type="checkbox" id="rolesEnabled" checked={rolesEnabled} onChange={e => setRolesEnabled(e.target.checked)} />
+                        <span className="slider round"></span>
+                    </label>
+                </div>
+                {rolesEnabled && (
+                     <div className="form-group">
+                        <label htmlFor="defaultRole">Default Role for New Members</label>
+                        <select id="defaultRole" value={defaultRoleId} onChange={e => setDefaultRoleId(e.target.value)}>
+                            <option value="">None</option>
+                            {roles.map(role => (
+                                <option key={role.id} value={role.id}>{role.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 <button type="submit" className="btn btn-primary"><i className="fas fa-save"></i> Save Settings</button>
             </form>
         </section>
     );
 };
 
-const MembersSection = ({ members }) => {
+const RoleManagementSection = ({ roles, onAction }) => {
+    const [roleName, setRoleName] = useState('');
+    const [roleColor, setRoleColor] = useState('#cccccc');
+
+    const handleCreateRole = (e) => {
+        e.preventDefault();
+        if (roleName.trim()) {
+            onAction('create', { name: roleName.trim(), color: roleColor });
+            setRoleName('');
+            setRoleColor('#cccccc');
+        }
+    };
+
+    return (
+        <section className="role-management-section">
+            <h2><i className="fas fa-user-tag"></i> Manage Roles</h2>
+            <form onSubmit={handleCreateRole} className="role-form">
+                 <input 
+                    type="text" 
+                    value={roleName} 
+                    onChange={e => setRoleName(e.target.value)} 
+                    placeholder="New role name (e.g., VIP)" 
+                    required 
+                />
+                <input 
+                    type="color" 
+                    value={roleColor} 
+                    onChange={e => setRoleColor(e.target.value)}
+                    title="Select role color"
+                />
+                <button type="submit" className="btn btn-primary"><i className="fas fa-plus"></i> Create Role</button>
+            </form>
+            <div className="role-list">
+                {roles.length > 0 ? roles.map(role => (
+                    <div key={role.id} className="role-item">
+                        <span className="role-tag" style={{ backgroundColor: role.color }}>{role.name}</span>
+                        <button onClick={() => onAction('delete', { id: role.id })} className="btn-delete-role">
+                            <i className="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                )) : <p>No roles created yet.</p>}
+            </div>
+        </section>
+    );
+};
+
+const MembersSection = ({ members, roles, onRoleAction, rolesEnabled }) => {
     if (members.length === 0) {
         return <p>No members yet. Share your project and ask for tips to get started!</p>;
     }
@@ -278,11 +397,12 @@ const MembersSection = ({ members }) => {
                             <th>Member</th>
                             <th>Total Paid (Credits)</th>
                             <th>Membership Ends</th>
+                            {rolesEnabled && <th>Role</th>}
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {members.map(member => <MemberRow key={member.user.id} member={member} />)}
+                        {members.map(member => <MemberRow key={member.user.id} member={member} roles={roles} onRoleAction={onRoleAction} rolesEnabled={rolesEnabled}/>)}
                     </tbody>
                 </table>
             </div>
@@ -290,8 +410,8 @@ const MembersSection = ({ members }) => {
     );
 };
 
-const MemberRow = ({ member }) => {
-    const { user, totalPaid, membershipEndDate, status } = member;
+const MemberRow = ({ member, roles, onRoleAction, rolesEnabled }) => {
+    const { user, totalPaid, membershipEndDate, status, role } = member;
     
     const getStatusClass = () => {
         switch(status) {
@@ -303,6 +423,15 @@ const MemberRow = ({ member }) => {
     };
     
     const endDateString = membershipEndDate ? membershipEndDate.toLocaleDateString() : 'N/A';
+    
+    const handleRoleChange = (e) => {
+        const roleId = e.target.value;
+        if (roleId) {
+            onRoleAction('assign', { userId: user.id, roleId });
+        } else {
+            onRoleAction('unassign', { userId: user.id });
+        }
+    };
     
     return (
         <tr>
@@ -316,13 +445,23 @@ const MemberRow = ({ member }) => {
             </td>
             <td className="credits-cell">{totalPaid}</td>
             <td>{endDateString}</td>
+            {rolesEnabled && (
+                <td>
+                    <select className="role-select" value={role?.id || ''} onChange={handleRoleChange}>
+                        <option value="">No Role</option>
+                        {roles.map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                    </select>
+                </td>
+            )}
             <td><span className={`status-badge ${getStatusClass()}`}>{status}</span></td>
         </tr>
     );
 };
 
 const MemberDashboard = ({ member, settings }) => {
-    const { user, totalPaid, membershipEndDate, status } = member;
+    const { user, totalPaid, membershipEndDate, status, role } = member;
 
     const getStatusClass = () => {
         switch(status) {
@@ -350,6 +489,9 @@ const MemberDashboard = ({ member, settings }) => {
             <header className="member-dashboard-header">
                 <img src={`https://images.websim.com/avatar/${user.username}`} alt={user.username} />
                 <h2><span>Welcome back,</span> @{user.username}!</h2>
+                {role && (
+                    <span className="role-tag" style={{ backgroundColor: role.color, marginLeft: '15px' }}>{role.name}</span>
+                )}
             </header>
             <main className="main-content">
                  <div className="member-stats">

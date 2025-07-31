@@ -101,6 +101,12 @@ header .view-as-buttons {
     border-bottom: 2px solid var(--primary-color);
     padding-bottom: 10px;
     margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.settings-section h2 .fas {
+    margin-right: 10px;
 }
 
 .settings-form {
@@ -132,6 +138,81 @@ header .view-as-buttons {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+}
+
+.form-group-toggle {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.form-group-toggle label:first-child {
+    margin: 0;
+}
+
+/* The switch - the box around the slider */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: var(--primary-color);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--primary-color);
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(22px);
+  -ms-transform: translateX(22px);
+  transform: translateX(22px);
+}
+
+/* Rounded sliders */
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
 }
 
 .btn {
@@ -265,6 +346,8 @@ header .view-as-buttons {
     margin: 0;
     font-size: 1.8rem;
     color: var(--primary-color);
+    display: flex;
+    align-items: center;
 }
 
 .member-dashboard-header h2 span {
@@ -400,6 +483,14 @@ td {
     text-decoration: underline;
 }
 
+.role-select {
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: var(--white-color);
+    min-width: 120px;
+}
+
 .status-badge {
     padding: 5px 12px;
     border-radius: 16px;
@@ -426,4 +517,84 @@ td {
 
 .credits-cell {
     font-weight: 500;
+}
+
+.role-management-section {
+    background-color: var(--secondary-color);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 30px;
+    border: 1px solid var(--border-color);
+}
+
+.role-management-section h2 {
+    margin-top: 0;
+    color: var(--primary-color);
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.role-management-section h2 .fas {
+    margin-right: 10px;
+}
+
+.role-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+}
+
+.role-form input[type="text"] {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.role-form input[type="color"] {
+    width: 40px;
+    height: 40px;
+    border: none;
+    padding: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.role-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.role-item {
+    display: flex;
+    align-items: center;
+    background: #e9ecef;
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.role-tag {
+    padding: 6px 12px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--white-color);
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+}
+
+.btn-delete-role {
+    background: transparent;
+    border: none;
+    color: var(--danger-color);
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 1rem;
+}
+
+.btn-delete-role:hover {
+    color: #a02d24;
 }
