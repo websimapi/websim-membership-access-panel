@@ -1,4 +1,4 @@
-import { calculateMembershipData } from './utils.js';
+import { calculateMembershipData, getMembershipDurationString } from './utils.js';
 
 const { useState, useEffect, useMemo, useCallback } = React;
 const { createRoot } = ReactDOM;
@@ -24,22 +24,22 @@ const App = () => {
                 ]);
 
                 setCurrentUser(user);
-                setIsCreator(user?.id === creator?.id);
+                const isUserCreator = user?.id === creator?.id;
+                setIsCreator(isUserCreator);
 
-                if (user?.id === creator?.id) {
-                    // Fetch settings for creator
-                    room.collection(SETTINGS_COLLECTION).subscribe(settingsRecords => {
-                        if (settingsRecords && settingsRecords.length > 0) {
-                            // Find the most recent setting by the creator
-                            const creatorSettings = settingsRecords
-                                .filter(s => s.username === creator.username)
-                                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                            setSettings(creatorSettings[0] || null);
-                        } else {
-                            setSettings(null);
-                        }
-                    });
+                // Fetch settings for everyone.
+                room.collection(SETTINGS_COLLECTION).subscribe(settingsRecords => {
+                    if (settingsRecords && settingsRecords.length > 0) {
+                        const creatorSettings = settingsRecords
+                            .filter(s => s.username === creator.username)
+                            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                        setSettings(creatorSettings[0] || null);
+                    } else {
+                        setSettings(null);
+                    }
+                });
 
+                if (isUserCreator) {
                     // Fetch tip comments
                     const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
                     if (!response.ok) throw new Error("Failed to fetch comments");
@@ -119,12 +119,7 @@ const App = () => {
     }
 
     if (!isCreator) {
-        return (
-            <div className="error-container">
-                <i className="fas fa-lock"></i>
-                <p>Access Denied. Only the project creator can view this page.</p>
-            </div>
-        );
+        return <MembershipPromptSection settings={settings} />;
     }
 
     return (
@@ -136,6 +131,44 @@ const App = () => {
                 <SettingsSection settings={settings} onSave={handleSaveSettings} />
                 <MembersSection members={members} />
             </main>
+        </div>
+    );
+};
+
+const MembershipPromptSection = ({ settings }) => {
+    const handleBecomeMember = async () => {
+        const message = `Tipping ${settings.price} credits for membership!`;
+        const result = await window.websim.postComment({ content: message });
+        if (result.error) {
+            console.error("Could not open comment dialog:", result.error);
+            // Optionally, show an error to the user
+        }
+    };
+    
+    if (!settings) {
+        return (
+            <div className="membership-prompt-section">
+                <i className="fas fa-info-circle icon"></i>
+                <h3>Membership Not Available</h3>
+                <p>The creator has not set up memberships for this project yet. Check back later!</p>
+            </div>
+        );
+    }
+
+    const { price, pricingModel } = settings;
+    const durationString = getMembershipDurationString(pricingModel);
+
+    return (
+        <div className="membership-prompt-section">
+            <i className="fas fa-star icon"></i>
+            <h3>Become a Member!</h3>
+            <p>Support the creator by becoming a member.</p>
+            <div className="offer">
+                Tip <strong>{price} credits</strong> {durationString}.
+            </div>
+            <button className="btn btn-primary btn-lg" onClick={handleBecomeMember}>
+                <i className="fas fa-comment-dollar"></i> Become a Member
+            </button>
         </div>
     );
 };
@@ -240,4 +273,3 @@ const MemberRow = ({ member }) => {
 
 const root = createRoot(document.getElementById('root'));
 root.render(<App />);
-

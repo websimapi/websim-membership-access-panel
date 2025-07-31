@@ -60,3 +60,13 @@ export function calculateMembershipData(tipComments, settings) {
     }).filter(Boolean).sort((a,b) => b.membershipEndDate - a.membershipEndDate);
 }
 
+export function getMembershipDurationString(pricingModel) {
+    switch (pricingModel) {
+        case 'daily': return 'for 1 Day';
+        case 'weekly': return 'for 1 Week';
+        case 'bi-weekly': return 'for 2 Weeks';
+        case 'monthly': return 'for 1 Month';
+        case 'one-day': return 'for a One-Day Pass';
+        default: return '';
+    }
+}

@@ -58,7 +58,6 @@ body {
     color: var(--danger-color);
 }
 
-
 .admin-panel {
     display: flex;
     flex-direction: column;
@@ -153,6 +152,59 @@ header h1 {
     transform: translateY(1px);
 }
 
+.membership-prompt-section {
+    padding: 40px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--secondary-color);
+    border-radius: 8px;
+}
+
+.membership-prompt-section .icon {
+    font-size: 48px;
+    color: var(--primary-color);
+    margin-bottom: 20px;
+}
+
+.membership-prompt-section h3 {
+    margin: 0 0 10px 0;
+    font-size: 1.8rem;
+    color: var(--primary-color);
+}
+
+.membership-prompt-section p {
+    color: var(--light-text-color);
+    font-size: 1.1rem;
+    max-width: 400px;
+    margin-bottom: 25px;
+}
+
+.membership-prompt-section .offer {
+    background: var(--white-color);
+    padding: 15px 25px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 25px;
+    font-size: 1.2rem;
+    font-weight: 500;
+}
+
+.membership-prompt-section .offer strong {
+    color: var(--success-color);
+}
+
+.membership-prompt-section .btn-lg {
+    padding: 15px 30px;
+    font-size: 1.2rem;
+}
+
+.membership-prompt-section .btn-lg .fas {
+    margin-right: 10px;
+}
+
 .members-section {
     margin-top: 20px;
 }
@@ -233,4 +285,3 @@ td {
 .credits-cell {
     font-weight: 500;
 }
-
