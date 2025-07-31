@@ -1,7 +1,5 @@
 import { useState } from 'react';
 
-const { useState } = React;
-
 const RoleManagementSection = ({ roles, onAction }) => {
     const [roleName, setRoleName] = useState('');
     const [roleColor, setRoleColor] = useState('#cccccc');
@@ -49,4 +47,3 @@ const RoleManagementSection = ({ roles, onAction }) => {
 };
 
 export default RoleManagementSection;
-
