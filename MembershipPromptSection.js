@@ -1,15 +1,15 @@
-import { getMembershipDurationString } from '../utils.js';
+import React from 'react';
+import { getMembershipDurationString } from './utils.js';
 
 const MembershipPromptSection = ({ settings }) => {
     const handleBecomeMember = async () => {
         const message = `Tipping ${settings.price} credits for membership!`;
         const result = await window.websim.postComment({ content: message });
         if (result.error) {
-            console.error("Could not open comment dialog:", result.error);
-            // Optionally, show an error to the user
+            console.error('Could not open comment dialog:', result.error);
         }
     };
-    
+
     if (!settings) {
         return (
             <div className="membership-prompt-section">

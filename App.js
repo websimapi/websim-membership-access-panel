@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { calculateMembershipData } from '../utils.js';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { WebsimSocket } from '@websim/websim-socket';
+import { calculateMembershipData } from './utils.js';
 import SettingsSection from './SettingsSection.js';
 import RoleManagementSection from './RoleManagementSection.js';
 import MembersSection from './MembersSection.js';
@@ -23,7 +23,7 @@ const App = () => {
     const [assignments, setAssignments] = useState([]);
     const [tipComments, setTipComments] = useState([]);
     const [viewMode, setViewMode] = useState('admin');
-    
+
     useEffect(() => {
         const initialize = async () => {
             try {
@@ -32,105 +32,121 @@ const App = () => {
                     window.websim.getCurrentUser(),
                     window.websim.getCurrentProject()
                 ]);
-                
+
                 setCreator(creatorData);
                 setCurrentUser(user);
                 const isUserCreator = user?.id === creatorData?.id;
                 setIsCreator(isUserCreator);
                 if (!isUserCreator) {
-                    setViewMode('member'); // Default for non-creators
+                    setViewMode('member');
                 }
 
-                // Fetch settings, roles, and assignments
                 const creatorUsername = creatorData.username;
                 const unsubscribers = [];
 
-                unsubscribers.push(room.collection(SETTINGS_COLLECTION).filter({ username: creatorUsername }).subscribe(settingsRecords => {
-                    const sortedSettings = settingsRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                    setSettings(sortedSettings[0] || null);
-                }));
+                unsubscribers.push(
+                    room.collection(SETTINGS_COLLECTION)
+                        .filter({ username: creatorUsername })
+                        .subscribe(settingsRecords => {
+                            const sortedSettings = settingsRecords.sort(
+                                (a, b) => new Date(b.created_at) - new Date(a.created_at)
+                            );
+                            setSettings(sortedSettings[0] || null);
+                        })
+                );
 
-                unsubscribers.push(room.collection(ROLES_COLLECTION).filter({ username: creatorUsername }).subscribe(setRoles));
-                unsubscribers.push(room.collection(ASSIGNMENTS_COLLECTION).filter({ username: creatorUsername }).subscribe(setAssignments));
+                unsubscribers.push(
+                    room.collection(ROLES_COLLECTION)
+                        .filter({ username: creatorUsername })
+                        .subscribe(setRoles)
+                );
 
-                
-                // Fetch all tip comments for the project
+                unsubscribers.push(
+                    room.collection(ASSIGNMENTS_COLLECTION)
+                        .filter({ username: creatorUsername })
+                        .subscribe(setAssignments)
+                );
+
                 const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
-                if (!response.ok) throw new Error("Failed to fetch comments");
+                if (!response.ok) throw new Error('Failed to fetch comments');
                 const data = await response.json();
-                const sortedComments = data.comments.data.map(c => c.comment).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+                const sortedComments = data.comments.data
+                    .map(c => c.comment)
+                    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
                 setTipComments(sortedComments);
-                
-                // Listen for new tips in real-time
+
                 const commentUnsubscribe = window.websim.addEventListener('comment:created', (eventData) => {
                     const newComment = eventData.comment;
                     if (newComment.card_data && newComment.card_data.type === 'tip_comment') {
-                        setTipComments(prevComments => 
-                            [...prevComments, newComment]
-                            .sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+                        setTipComments(prev =>
+                            [...prev, newComment].sort(
+                                (a, b) => new Date(a.created_at) - new Date(b.created_at)
+                            )
                         );
                     }
                 });
                 unsubscribers.push(commentUnsubscribe);
-                
-                return () => unsubscribers.forEach(unsub => unsub());
 
+                return () => unsubscribers.forEach(unsub => unsub());
             } catch (err) {
-                console.error("Initialization failed:", err);
-                setError(err.message || "An unexpected error occurred.");
+                console.error('Initialization failed:', err);
+                setError(err.message || 'An unexpected error occurred.');
             } finally {
                 setLoading(false);
             }
         };
 
         const unsubscribePromise = initialize();
-        
         return () => {
             unsubscribePromise.then(unsubscribe => {
-                if(unsubscribe) unsubscribe();
+                if (unsubscribe) unsubscribe();
             });
         };
-
     }, []);
 
     const handleSaveSettings = useCallback(async (newSettings) => {
         try {
-            const list = await room.collection(SETTINGS_COLLECTION).filter({ username: creator.username }).getList();
+            const list = await room.collection(SETTINGS_COLLECTION)
+                .filter({ username: creator.username })
+                .getList();
             const existingSettings = list[0];
 
             if (existingSettings) {
-                 await room.collection(SETTINGS_COLLECTION).upsert({ ...existingSettings, ...newSettings });
+                await room.collection(SETTINGS_COLLECTION)
+                    .upsert({ ...existingSettings, ...newSettings });
             } else {
-                 await room.collection(SETTINGS_COLLECTION).create(newSettings);
+                await room.collection(SETTINGS_COLLECTION).create(newSettings);
             }
         } catch (err) {
-            console.error("Failed to save settings:", err);
-            setError("Could not save settings.");
+            console.error('Failed to save settings:', err);
+            setError('Could not save settings.');
         }
     }, [creator]);
 
     const handleRoleAction = useCallback(async (action, payload) => {
         try {
-            switch(action) {
+            switch (action) {
                 case 'create':
                     await room.collection(ROLES_COLLECTION).create(payload);
                     break;
                 case 'delete':
                     await room.collection(ROLES_COLLECTION).delete(payload.id);
-                    // Also unassign this role from any members
                     const assignmentsToDelete = assignments.filter(a => a.role_id === payload.id);
                     for (const assignment of assignmentsToDelete) {
                         await room.collection(ASSIGNMENTS_COLLECTION).delete(assignment.id);
                     }
                     break;
                 case 'assign':
-                    await room.collection(ASSIGNMENTS_COLLECTION).upsert({ id: payload.userId, role_id: payload.roleId });
+                    await room.collection(ASSIGNMENTS_COLLECTION)
+                        .upsert({ id: payload.userId, role_id: payload.roleId });
                     break;
                 case 'unassign':
                     await room.collection(ASSIGNMENTS_COLLECTION).delete(payload.userId);
                     break;
+                default:
+                    break;
             }
-        } catch(err) {
+        } catch (err) {
             console.error(`Role action '${action}' failed:`, err);
             setError(`Could not perform role action: ${action}.`);
         }
@@ -141,9 +157,11 @@ const App = () => {
         const baseMembers = calculateMembershipData(tipComments, settings);
         return baseMembers.map(member => {
             const assignment = assignments.find(a => a.id === member.user.id);
-            const role = assignment ? roles.find(r => r.id === assignment.role_id) : null;
+            const role = assignment
+                ? roles.find(r => r.id === assignment.role_id)
+                : null;
             return { ...member, role };
-        }).sort((a,b) => (b.membershipEndDate || 0) - (a.membershipEndDate || 0));
+        }).sort((a, b) => (b.membershipEndDate || 0) - (a.membershipEndDate || 0));
     }, [tipComments, settings, roles, assignments]);
 
     if (loading) {
@@ -154,9 +172,9 @@ const App = () => {
             </div>
         );
     }
-    
+
     if (error) {
-         return (
+        return (
             <div className="error-container">
                 <i className="fas fa-exclamation-triangle"></i>
                 <p>Error: {error}</p>
@@ -171,20 +189,17 @@ const App = () => {
             }
             const member = members.find(m => m.user.id === currentUser?.id);
             if (!member) return null;
-            
-            // For member view, if roles are enabled and no role is assigned, assign default role if it exists
+
             if (settings?.rolesEnabled && !member.role && settings.defaultRoleId) {
                 const defaultRole = roles.find(r => r.id === settings.defaultRoleId);
                 return { ...member, role: defaultRole };
             }
             return member;
-
         }, [members, currentUser, isCreator, viewMode, settings, roles]);
 
         if (currentUserMembership) {
             return <MemberDashboard member={currentUserMembership} settings={settings} />;
         }
-
         return <MembershipPromptSection settings={settings} />;
     };
 
@@ -207,20 +222,25 @@ const App = () => {
                     {settings?.rolesEnabled && (
                         <RoleManagementSection roles={roles} onAction={handleRoleAction} />
                     )}
-                    <MembersSection members={members} roles={roles} onRoleAction={handleRoleAction} rolesEnabled={settings?.rolesEnabled} />
+                    <MembersSection
+                        members={members}
+                        roles={roles}
+                        onRoleAction={handleRoleAction}
+                        rolesEnabled={settings?.rolesEnabled}
+                    />
                 </main>
             </div>
         );
     }
-    
+
     return (
         <div className="user-view-wrapper">
-             {isCreator && (
+            {isCreator && (
                 <div className="view-toggle-banner">
                     <p>
-                        <i className="fas fa-info-circle"></i> 
-                        {viewMode === 'member' 
-                            ? 'You are viewing the page as a member.' 
+                        <i className="fas fa-info-circle"></i>
+                        {viewMode === 'member'
+                            ? 'You are viewing the page as a member.'
                             : 'You are viewing as an unpaid user.'
                         }
                     </p>

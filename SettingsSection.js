@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const SettingsSection = ({ settings, roles, onSave }) => {
     const [price, setPrice] = useState(100);
@@ -15,7 +15,7 @@ const SettingsSection = ({ settings, roles, onSave }) => {
         }
     }, [settings]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = e => {
         e.preventDefault();
         onSave({
             price: parseInt(price, 10),
@@ -41,19 +41,34 @@ const SettingsSection = ({ settings, roles, onSave }) => {
                 </div>
                 <div className="form-group">
                     <label htmlFor="price">Price (Credits)</label>
-                    <input type="number" id="price" value={price} onChange={e => setPrice(e.target.value)} min="1" />
+                    <input
+                        type="number"
+                        id="price"
+                        value={price}
+                        onChange={e => setPrice(e.target.value)}
+                        min="1"
+                    />
                 </div>
                 <div className="form-group form-group-toggle">
                     <label htmlFor="rolesEnabled">Enable Roles</label>
                     <label className="switch">
-                        <input type="checkbox" id="rolesEnabled" checked={rolesEnabled} onChange={e => setRolesEnabled(e.target.checked)} />
+                        <input
+                            type="checkbox"
+                            id="rolesEnabled"
+                            checked={rolesEnabled}
+                            onChange={e => setRolesEnabled(e.target.checked)}
+                        />
                         <span className="slider round"></span>
                     </label>
                 </div>
                 {rolesEnabled && (
-                     <div className="form-group">
+                    <div className="form-group">
                         <label htmlFor="defaultRole">Default Role for New Members</label>
-                        <select id="defaultRole" value={defaultRoleId} onChange={e => setDefaultRoleId(e.target.value)}>
+                        <select
+                            id="defaultRole"
+                            value={defaultRoleId}
+                            onChange={e => setDefaultRoleId(e.target.value)}
+                        >
                             <option value="">None</option>
                             {roles.map(role => (
                                 <option key={role.id} value={role.id}>{role.name}</option>
@@ -61,7 +76,9 @@ const SettingsSection = ({ settings, roles, onSave }) => {
                         </select>
                     </div>
                 )}
-                <button type="submit" className="btn btn-primary"><i className="fas fa-save"></i> Save Settings</button>
+                <button type="submit" className="btn btn-primary">
+                    <i className="fas fa-save"></i> Save Settings
+                </button>
             </form>
         </section>
     );
