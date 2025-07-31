@@ -1,7 +1,7 @@
 import { calculateMembershipData, getMembershipDurationString } from './utils.js';
 import { WebsimSocket } from '@websim/websim-socket';
-import { MembershipPromptSection, MemberDashboard } from './UserViewComponents.js';
-import { SettingsSection, RoleManagementSection, MembersSection } from './AdminComponents.js';
+import { MembershipPromptSection, MemberDashboard } from './UserViewComponents.jsx';
+import { SettingsSection, RoleManagementSection, MembersSection } from './AdminComponents.jsx';
 
 const { useState, useEffect, useMemo, useCallback } = React;
 const { createRoot } = ReactDOM;
