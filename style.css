@@ -148,8 +148,41 @@ header h1 {
     background-color: #357ABD;
 }
 
+.btn-secondary {
+    background-color: var(--white-color);
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+}
+
+.btn-secondary:hover {
+    background-color: rgba(74, 144, 226, 0.1);
+}
+
 .btn:active {
     transform: translateY(1px);
+}
+
+.view-toggle-btn {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+}
+
+.view-toggle-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #e7f3ff;
+    color: #31708f;
+    padding: 10px 20px;
+}
+
+.view-toggle-banner p {
+    margin: 0;
+    font-weight: 500;
+}
+
+.view-toggle-banner .fas {
+    margin-right: 8px;
 }
 
 .membership-prompt-section {

@@ -13,6 +13,7 @@ const App = () => {
     const [error, setError] = useState(null);
     const [settings, setSettings] = useState(null);
     const [tipComments, setTipComments] = useState([]);
+    const [viewAsUser, setViewAsUser] = useState(false);
     
     useEffect(() => {
         const initialize = async () => {
@@ -122,11 +123,26 @@ const App = () => {
         );
     }
 
-    if (isCreator) {
+    const UserView = () => {
+        const currentUserMembership = useMemo(() => {
+            return members.find(m => m.user.id === currentUser?.id);
+        }, [members, currentUser]);
+
+        if (currentUserMembership) {
+            return <MemberDashboard member={currentUserMembership} settings={settings} />;
+        }
+
+        return <MembershipPromptSection settings={settings} />;
+    };
+
+    if (isCreator && !viewAsUser) {
         return (
             <div className="admin-panel">
                 <header>
                     <h1><i className="fas fa-users-cog"></i> Membership Admin Panel</h1>
+                    <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewAsUser(true)}>
+                        <i className="fas fa-eye"></i> View as User
+                    </button>
                 </header>
                 <main className="main-content">
                     <SettingsSection settings={settings} onSave={handleSaveSettings} />
@@ -136,15 +152,19 @@ const App = () => {
         );
     }
     
-    const currentUserMembership = useMemo(() => {
-        return members.find(m => m.user.id === currentUser?.id);
-    }, [members, currentUser]);
-
-    if (currentUserMembership) {
-        return <MemberDashboard member={currentUserMembership} settings={settings} />;
-    }
-
-    return <MembershipPromptSection settings={settings} />;
+    return (
+        <div className="user-view-wrapper">
+             {isCreator && (
+                <div className="view-toggle-banner">
+                    <p><i className="fas fa-info-circle"></i> You are viewing the page as a regular user.</p>
+                    <button className="btn btn-secondary" onClick={() => setViewAsUser(false)}>
+                        <i className="fas fa-user-shield"></i> Switch to Admin View
+                    </button>
+                </div>
+            )}
+            <UserView />
+        </div>
+    );
 };
 
 const MembershipPromptSection = ({ settings }) => {
