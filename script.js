@@ -1,10 +1,11 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
 import { calculateMembershipData, getMembershipDurationString } from './utils.js';
 import { WebsimSocket } from '@websim/websim-socket';
 import SettingsSection from './components/SettingsSection.js';
 import RoleManagementSection from './components/RoleManagementSection.js';
 
 const { useState, useEffect, useMemo, useCallback } = React;
-const { createRoot } = ReactDOM;
 
 const room = new WebsimSocket();
 const SETTINGS_COLLECTION = 'membership_settings_v1';
