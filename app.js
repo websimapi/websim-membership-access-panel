@@ -30,7 +30,7 @@ class MembershipApp {
 
     updateMembers() {
         const { tipComments, settings, roles, assignments } = this.state;
-        if (!settings || tipComments.length === 0) {
+        if (!settings) {
             this.state.members = [];
             return;
         }
@@ -46,6 +46,21 @@ class MembershipApp {
         try {
             ui.renderLoading(this.root);
             const { creator, user, project } = await api.getInitialData();
+
+            if (!creator) {
+                this.setState({
+                    loading: false,
+                    error: "Membership features require a project creator. Make sure this project has an owner."
+                });
+                return;
+            }
+            if (!project) {
+                this.setState({
+                    loading: false,
+                    error: "Could not load project information. Please try again."
+                });
+                return;
+            }
 
             const isUserCreator = user?.id === creator?.id;
             const initialState = {
