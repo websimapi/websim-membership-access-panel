@@ -576,6 +576,42 @@ td {
     background: #e9ecef;
     border-radius: 16px;
     overflow: hidden;
+    transition: box-shadow 0.2s;
+}
+
+.role-item:hover {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.role-item.editing {
+    background-color: var(--white-color);
+    border: 1px solid var(--primary-color);
+    padding: 2px;
+}
+
+.role-name-input {
+    border: none;
+    background: transparent;
+    padding: 6px 4px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    flex-grow: 1;
+    width: 120px;
+}
+
+.role-name-input:focus {
+    outline: none;
+    background: #f8f9fa;
+}
+
+.role-color-input {
+    width: 28px;
+    height: 28px;
+    border: none;
+    padding: 0;
+    margin: 0 4px 0 0;
+    border-radius: 14px;
+    cursor: pointer;
 }
 
 .role-tag {
@@ -586,14 +622,19 @@ td {
     text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
 }
 
-.btn-edit-role,
-.btn-delete-role {
+.btn-edit-role, .btn-delete-role, .btn-save-role, .btn-cancel-role {
     background: transparent;
     border: none;
     cursor: pointer;
     padding: 6px 10px;
-    font-size: 1rem;
-    transition: color 0.2s;
+    font-size: 0.9rem;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.role-item:hover .btn-edit-role,
+.role-item:hover .btn-delete-role {
+    opacity: 1;
 }
 
 .btn-edit-role {
@@ -610,4 +651,22 @@ td {
 
 .btn-delete-role:hover {
     color: #a02d24;
+}
+
+.btn-save-role {
+    color: var(--success-color);
+    opacity: 1;
+}
+
+.btn-save-role:hover {
+    color: #388e3c;
+}
+
+.btn-cancel-role {
+    color: var(--light-text-color);
+    opacity: 1;
+}
+
+.btn-cancel-role:hover {
+    color: var(--text-color);
 }

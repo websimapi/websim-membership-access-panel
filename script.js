@@ -342,38 +342,20 @@ const SettingsSection = ({ settings, roles, onSave }) => {
 const RoleManagementSection = ({ roles, onAction }) => {
     const [roleName, setRoleName] = useState('');
     const [roleColor, setRoleColor] = useState('#cccccc');
-    const [editingRole, setEditingRole] = useState(null);
 
-    useEffect(() => {
-        if (editingRole) {
-            setRoleName(editingRole.name);
-            setRoleColor(editingRole.color);
-        } else {
+    const handleCreateRole = (e) => {
+        e.preventDefault();
+        if (roleName.trim()) {
+            onAction('create', { name: roleName.trim(), color: roleColor });
             setRoleName('');
             setRoleColor('#cccccc');
         }
-    }, [editingRole]);
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        if (roleName.trim()) {
-            if (editingRole) {
-                 onAction('update', { ...editingRole, name: roleName.trim(), color: roleColor });
-            } else {
-                onAction('create', { name: roleName.trim(), color: roleColor });
-            }
-            setEditingRole(null);
-        }
-    };
-
-    const handleCancelEdit = () => {
-        setEditingRole(null);
     };
 
     return (
         <section className="role-management-section">
-            <h2><i className="fas fa-user-tag"></i> {editingRole ? 'Edit Role' : 'Manage Roles'}</h2>
-            <form onSubmit={handleSubmit} className="role-form">
+            <h2><i className="fas fa-user-tag"></i> Manage Roles</h2>
+            <form onSubmit={handleCreateRole} className="role-form">
                  <input 
                     type="text" 
                     value={roleName} 
@@ -387,29 +369,76 @@ const RoleManagementSection = ({ roles, onAction }) => {
                     onChange={e => setRoleColor(e.target.value)}
                     title="Select role color"
                 />
-                <button type="submit" className="btn btn-primary">
-                    <i className={`fas ${editingRole ? 'fa-save' : 'fa-plus'}`}></i> {editingRole ? 'Update Role' : 'Create Role'}
-                </button>
-                {editingRole && (
-                    <button type="button" onClick={handleCancelEdit} className="btn btn-secondary">
-                        Cancel
-                    </button>
-                )}
+                <button type="submit" className="btn btn-primary"><i className="fas fa-plus"></i> Create Role</button>
             </form>
             <div className="role-list">
                 {roles.length > 0 ? roles.map(role => (
-                    <div key={role.id} className="role-item">
-                        <span className="role-tag" style={{ backgroundColor: role.color }}>{role.name}</span>
-                        <button onClick={() => setEditingRole(role)} className="btn-edit-role" title="Edit Role">
-                            <i className="fas fa-edit"></i>
-                        </button>
-                        <button onClick={() => onAction('delete', { id: role.id })} className="btn-delete-role" title="Delete Role">
-                            <i className="fas fa-trash-alt"></i>
-                        </button>
-                    </div>
+                    <RoleItem key={role.id} role={role} onAction={onAction} />
                 )) : <p>No roles created yet.</p>}
             </div>
         </section>
+    );
+};
+
+const RoleItem = ({ role, onAction }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedName, setEditedName] = useState(role.name);
+    const [editedColor, setEditedColor] = useState(role.color);
+
+    const handleUpdate = () => {
+        if (editedName.trim() && (editedName.trim() !== role.name || editedColor !== role.color)) {
+            onAction('update', { id: role.id, name: editedName.trim(), color: editedColor });
+        }
+        setIsEditing(false);
+    };
+
+    const handleCancel = () => {
+        setEditedName(role.name);
+        setEditedColor(role.color);
+        setIsEditing(false);
+    };
+    
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            handleUpdate();
+        } else if (e.key === 'Escape') {
+            handleCancel();
+        }
+    };
+
+    if (isEditing) {
+        return (
+            <div className="role-item editing">
+                <input 
+                    type="color" 
+                    className="role-color-input"
+                    value={editedColor} 
+                    onChange={e => setEditedColor(e.target.value)}
+                />
+                <input 
+                    type="text" 
+                    className="role-name-input"
+                    value={editedName} 
+                    onChange={e => setEditedName(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    autoFocus
+                />
+                <button onClick={handleUpdate} className="btn-save-role" title="Save"><i className="fas fa-check"></i></button>
+                <button onClick={handleCancel} className="btn-cancel-role" title="Cancel"><i className="fas fa-times"></i></button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="role-item">
+            <span className="role-tag" style={{ backgroundColor: role.color }}>{role.name}</span>
+            <button onClick={() => setIsEditing(true)} className="btn-edit-role" title="Edit role">
+                <i className="fas fa-pencil-alt"></i>
+            </button>
+            <button onClick={() => onAction('delete', { id: role.id })} className="btn-delete-role" title="Delete role">
+                <i className="fas fa-trash-alt"></i>
+            </button>
+        </div>
     );
 };
 
