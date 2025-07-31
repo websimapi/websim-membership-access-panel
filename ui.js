@@ -1,32 +1,274 @@
 import { getMembershipDurationString } from './utils.js';
+import { handleBecomeMember, handleExtendMembership } from './api.js';
 
-function renderAdminView(state) {
-    const { settings, roles, members } = state;
-    return `
-        <div class="admin-panel">
-            <header>
-                <h1><i class="fas fa-users-cog"></i> Membership Admin Panel</h1>
-                <div class="view-as-buttons">
-                    <button class="btn btn-secondary view-toggle-btn" data-action="setViewMode" data-mode="member">
-                        <i class="fas fa-user-check"></i> View as Member
-                    </button>
-                    <button class="btn btn-secondary view-toggle-btn" data-action="setViewMode" data-mode="unpaid">
-                        <i class="fas fa-user"></i> View as Unpaid User
-                    </button>
-                </div>
-            </header>
-            <main class="main-content">
-                ${renderSettingsSection(settings, roles)}
-                ${settings?.rolesEnabled ? renderRoleManagementSection(roles) : ''}
-                ${renderMembersSection(members, roles, settings?.rolesEnabled)}
-            </main>
-        </div>
-    `;
+function h(tag, props = {}, ...children) {
+    const el = document.createElement(tag);
+    Object.entries(props).forEach(([key, value]) => {
+        if (key.startsWith('on') && typeof value === 'function') {
+            el.addEventListener(key.substring(2).toLowerCase(), value);
+        } else if (key === 'style' && typeof value === 'object') {
+            Object.assign(el.style, value);
+        } else {
+            el[key] = value;
+        }
+    });
+    children.flat().forEach(child => {
+        if (typeof child === 'string' || typeof child === 'number') {
+            el.appendChild(document.createTextNode(child));
+        } else if (child instanceof Node) {
+            el.appendChild(child);
+        }
+    });
+    return el;
 }
 
-function renderUserView(state) {
-    const { isCreator, viewMode, members, currentUser, settings, roles } = state;
+export function renderLoading() {
+    return h('div', { className: 'loading-container' },
+        h('i', { className: 'fas fa-spinner fa-spin' }),
+        h('p', {}, 'Loading Membership Panel...')
+    );
+}
+
+export function renderError(error) {
+    return h('div', { className: 'error-container' },
+        h('i', { className: 'fas fa-exclamation-triangle' }),
+        h('p', {}, `Error: ${error}`)
+    );
+}
+
+function renderSettingsSection(settings, roles, onSave) {
+    const currentPrice = settings?.price || 100;
+    const currentModel = settings?.pricingModel || 'monthly';
+    const rolesEnabled = settings?.rolesEnabled || false;
+    const defaultRoleId = settings?.defaultRoleId || '';
+
+    const form = h('form', { className: 'settings-form' });
     
+    const pricingModelSelect = h('select', { id: 'pricingModel', value: currentModel },
+        h('option', { value: 'daily' }, 'Daily'),
+        h('option', { value: 'weekly' }, 'Weekly'),
+        h('option', { value: 'bi-weekly' }, 'Bi-Weekly'),
+        h('option', { value: 'monthly' }, 'Monthly'),
+        h('option', { value: 'one-day' }, 'One-Day Pass')
+    );
+    const priceInput = h('input', { type: 'number', id: 'price', value: currentPrice, min: 1 });
+    const rolesEnabledCheckbox = h('input', { type: 'checkbox', id: 'rolesEnabled', checked: rolesEnabled });
+    const defaultRoleSelect = h('select', { id: 'defaultRole', value: defaultRoleId },
+        h('option', { value: '' }, 'None'),
+        ...roles.map(role => h('option', { value: role.id }, role.name))
+    );
+
+    const rolesEnabledGroup = h('div', { className: 'form-group' },
+        h('label', { htmlFor: 'defaultRole' }, 'Default Role for New Members'),
+        defaultRoleSelect
+    );
+    rolesEnabledGroup.style.display = rolesEnabled ? 'flex' : 'none';
+
+    rolesEnabledCheckbox.addEventListener('change', (e) => {
+        rolesEnabledGroup.style.display = e.target.checked ? 'flex' : 'none';
+    });
+
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        onSave({
+            price: parseInt(priceInput.value, 10),
+            pricingModel: pricingModelSelect.value,
+            rolesEnabled: rolesEnabledCheckbox.checked,
+            defaultRoleId: defaultRoleSelect.value,
+        });
+    };
+
+    form.append(
+        h('div', { className: 'form-group' }, h('label', { htmlFor: 'pricingModel' }, 'Pricing Model'), pricingModelSelect),
+        h('div', { className: 'form-group' }, h('label', { htmlFor: 'price' }, 'Price (Credits)'), priceInput),
+        h('div', { className: 'form-group form-group-toggle' },
+            h('label', { htmlFor: 'rolesEnabled' }, 'Enable Roles'),
+            h('label', { className: 'switch' }, rolesEnabledCheckbox, h('span', { className: 'slider round' }))
+        ),
+        rolesEnabledGroup,
+        h('button', { type: 'submit', className: 'btn btn-primary' }, h('i', { className: 'fas fa-save' }), ' Save Settings')
+    );
+
+    return h('section', { className: 'settings-section' },
+        h('h2', {}, h('i', { className: 'fas fa-cogs' }), ' Membership Settings'),
+        form
+    );
+}
+
+function renderRoleManagementSection(roles, onAction) {
+    const roleNameInput = h('input', { type: 'text', placeholder: 'New role name (e.g., VIP)', required: true });
+    const roleColorInput = h('input', { type: 'color', value: '#cccccc', title: 'Select role color' });
+
+    const form = h('form', { className: 'role-form' },
+        roleNameInput,
+        roleColorInput,
+        h('button', { type: 'submit', className: 'btn btn-primary' }, h('i', { className: 'fas fa-plus' }), ' Create Role')
+    );
+
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        if (roleNameInput.value.trim()) {
+            onAction('create', { name: roleNameInput.value.trim(), color: roleColorInput.value });
+            roleNameInput.value = '';
+            roleColorInput.value = '#cccccc';
+        }
+    };
+    
+    const roleList = h('div', { className: 'role-list' },
+        roles.length > 0
+            ? roles.map(role => h('div', { className: 'role-item', key: role.id },
+                h('span', { className: 'role-tag', style: { backgroundColor: role.color } }, role.name),
+                h('button', {
+                    className: 'btn-delete-role',
+                    onclick: () => onAction('delete', { id: role.id })
+                }, h('i', { className: 'fas fa-trash-alt' }))
+            ))
+            : h('p', {}, 'No roles created yet.')
+    );
+
+    return h('section', { className: 'role-management-section' },
+        h('h2', {}, h('i', { className: 'fas fa-user-tag' }), ' Manage Roles'),
+        form,
+        roleList
+    );
+}
+
+function renderMembersSection(members, roles, onRoleAction, rolesEnabled) {
+    if (members.length === 0) {
+        return h('p', {}, 'No members yet. Share your project and ask for tips to get started!');
+    }
+    const getStatusClass = (status) => {
+        switch(status) {
+            case 'Active': return 'status-active';
+            case 'Lapsed': return 'status-lapsed';
+            case 'Expiring Soon': return 'status-warning';
+            default: return '';
+        }
+    };
+
+    const tableBody = h('tbody', {}, ...members.map(member => {
+        const { user, totalPaid, membershipEndDate, status, role } = member;
+        
+        const roleSelect = h('select', { 
+            className: 'role-select', 
+            value: role?.id || '',
+            onchange: (e) => {
+                const roleId = e.target.value;
+                if (roleId) {
+                    onRoleAction('assign', { userId: user.id, roleId });
+                } else {
+                    onRoleAction('unassign', { userId: user.id });
+                }
+            }
+        },
+            h('option', { value: '' }, 'No Role'),
+            ...roles.map(r => h('option', { value: r.id }, r.name))
+        );
+
+        return h('tr', { key: user.id },
+            h('td', {}, h('div', { className: 'member-info' },
+                h('img', { src: `https://images.websim.com/avatar/${user.username}`, alt: user.username }),
+                h('a', { href: `https://websim.com/@${user.username}`, target: '_blank', rel: 'noopener noreferrer' }, `@${user.username}`)
+            )),
+            h('td', { className: 'credits-cell' }, totalPaid),
+            h('td', {}, membershipEndDate ? membershipEndDate.toLocaleDateString() : 'N/A'),
+            rolesEnabled && h('td', {}, roleSelect),
+            h('td', {}, h('span', { className: `status-badge ${getStatusClass(status)}` }, status))
+        );
+    }));
+
+    return h('section', { className: 'members-section' },
+        h('h2', {}, h('i', { className: 'fas fa-users' }), ' Current Members'),
+        h('div', { className: 'table-container' },
+            h('table', {},
+                h('thead', {}, h('tr', {},
+                    h('th', {}, 'Member'),
+                    h('th', {}, 'Total Paid (Credits)'),
+                    h('th', {}, 'Membership Ends'),
+                    rolesEnabled && h('th', {}, 'Role'),
+                    h('th', {}, 'Status')
+                )),
+                tableBody
+            )
+        )
+    );
+}
+
+export function renderAdminView(state, onToggleView, onSaveSettings, onRoleAction) {
+    const { settings, roles, members } = state;
+    return h('div', { className: 'admin-panel' },
+        h('header', {},
+            h('h1', {}, h('i', { className: 'fas fa-users-cog' }), ' Membership Admin Panel'),
+            h('div', { className: 'view-as-buttons' },
+                h('button', { className: 'btn btn-secondary view-toggle-btn', onclick: () => onToggleView('member') },
+                    h('i', { className: 'fas fa-user-check' }), ' View as Member'
+                ),
+                h('button', { className: 'btn btn-secondary view-toggle-btn', onclick: () => onToggleView('unpaid') },
+                    h('i', { className: 'fas fa-user' }), ' View as Unpaid User'
+                )
+            )
+        ),
+        h('main', { className: 'main-content' },
+            renderSettingsSection(settings, roles, onSaveSettings),
+            settings?.rolesEnabled && renderRoleManagementSection(roles, onRoleAction),
+            renderMembersSection(members, roles, onRoleAction, settings?.rolesEnabled)
+        )
+    );
+}
+
+function renderMemberDashboard(member, settings) {
+    const { user, totalPaid, membershipEndDate, status, role } = member;
+    const getStatusClass = (s) => (s === 'Active' ? 'status-active' : s === 'Lapsed' ? 'status-lapsed' : 'status-warning');
+    
+    return h('div', { className: 'member-dashboard' },
+        h('header', { className: 'member-dashboard-header' },
+            h('img', { src: `https://images.websim.com/avatar/${user.username}`, alt: user.username }),
+            h('h2', {}, h('span', {}, 'Welcome back, '), `@${user.username}!`),
+            role && h('span', { className: 'role-tag', style: { backgroundColor: role.color, marginLeft: '15px' } }, role.name)
+        ),
+        h('main', { className: 'main-content' },
+            h('div', { className: 'member-stats' },
+                h('div', { className: 'stat-card' }, h('i', { className: 'fas fa-coins icon' }), h('div', { className: 'stat-card-info' }, h('h4', {}, 'Total Paid'), h('p', {}, `${totalPaid} credits`))),
+                h('div', { className: 'stat-card' }, h('i', { className: 'fas fa-calendar-check icon' }), h('div', { className: 'stat-card-info' }, h('h4', {}, 'Membership Ends'), h('p', {}, membershipEndDate ? membershipEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'))),
+                h('div', { className: 'stat-card' }, h('i', { className: 'fas fa-info-circle icon' }), h('div', { className: 'stat-card-info' }, h('h4', {}, 'Status'), h('p', {}, h('span', { className: `status-badge ${getStatusClass(status)}` }, status))))
+            ),
+            settings && h('div', { className: 'extend-membership-section' },
+                h('h3', {}, 'Extend Your Membership'),
+                h('p', {}, 'Continue supporting the creator and keep your benefits.'),
+                h('div', { className: 'offer' },
+                    'Tip ', h('strong', {}, `${settings.price} credits`), ` ${getMembershipDurationString(settings.pricingModel)}.`
+                ),
+                h('div', {}, h('button', { className: 'btn btn-primary btn-lg', onclick: () => handleExtendMembership(settings) }, h('i', { className: 'fas fa-comment-dollar' }), ' Extend Now'))
+            )
+        )
+    );
+}
+
+function renderMembershipPromptSection(settings) {
+    if (!settings) {
+        return h('div', { className: 'membership-prompt-section' },
+            h('i', { className: 'fas fa-info-circle icon' }),
+            h('h3', {}, 'Membership Not Available'),
+            h('p', {}, 'The creator has not set up memberships for this project yet. Check back later!')
+        );
+    }
+    const { price, pricingModel } = settings;
+    return h('div', { className: 'membership-prompt-section' },
+        h('i', { className: 'fas fa-star icon' }),
+        h('h3', {}, 'Become a Member!'),
+        h('p', {}, 'Support the creator by becoming a member.'),
+        h('div', { className: 'offer' },
+            'Tip ', h('strong', {}, price), ' credits ', getMembershipDurationString(pricingModel), '.'
+        ),
+        h('button', { className: 'btn btn-primary btn-lg', onclick: () => handleBecomeMember(settings) },
+            h('i', { className: 'fas fa-comment-dollar' }), ' Become a Member'
+        )
+    );
+}
+
+export function renderUserViewWrapper(state, onToggleView) {
+    const { isCreator, viewMode, currentUser, members, settings, roles } = state;
+
     let currentUserMembership = null;
     if (!(isCreator && viewMode === 'unpaid')) {
         const member = members.find(m => m.user.id === currentUser?.id);
@@ -39,237 +281,23 @@ function renderUserView(state) {
             }
         }
     }
-
-    const content = currentUserMembership 
+    
+    const userView = currentUserMembership
         ? renderMemberDashboard(currentUserMembership, settings)
         : renderMembershipPromptSection(settings);
 
-    return `
-        <div class="user-view-wrapper">
-            ${isCreator ? `
-                <div class="view-toggle-banner">
-                    <p>
-                        <i class="fas fa-info-circle"></i> 
-                        ${viewMode === 'member' 
-                            ? 'You are viewing the page as a member.' 
-                            : 'You are viewing as an unpaid user.'
-                        }
-                    </p>
-                    <button class="btn btn-secondary" data-action="setViewMode" data-mode="admin">
-                        <i class="fas fa-user-shield"></i> Switch to Admin View
-                    </button>
-                </div>` : ''
-            }
-            ${content}
-        </div>
-    `;
+    return h('div', { className: 'user-view-wrapper' },
+        isCreator && h('div', { className: 'view-toggle-banner' },
+            h('p', {}, 
+                h('i', { className: 'fas fa-info-circle' }),
+                viewMode === 'member' 
+                    ? ' You are viewing the page as a member.' 
+                    : ' You are viewing as an unpaid user.'
+            ),
+            h('button', { className: 'btn btn-secondary', onclick: () => onToggleView('admin') },
+                h('i', { className: 'fas fa-user-shield' }), ' Switch to Admin View'
+            )
+        ),
+        userView
+    );
 }
-
-function renderSettingsSection(settings, roles) {
-    const price = settings?.price || 100;
-    const model = settings?.pricingModel || 'monthly';
-    const rolesEnabled = settings?.rolesEnabled || false;
-    const defaultRoleId = settings?.defaultRoleId || '';
-
-    return `
-        <section class="settings-section">
-            <h2><i class="fas fa-cogs"></i> Membership Settings</h2>
-            <form data-action="saveSettings" class="settings-form">
-                <div class="form-group">
-                    <label for="pricingModel">Pricing Model</label>
-                    <select id="pricingModel" name="pricingModel">
-                        <option value="daily" ${model === 'daily' ? 'selected' : ''}>Daily</option>
-                        <option value="weekly" ${model === 'weekly' ? 'selected' : ''}>Weekly</option>
-                        <option value="bi-weekly" ${model === 'bi-weekly' ? 'selected' : ''}>Bi-Weekly</option>
-                        <option value="monthly" ${model === 'monthly' ? 'selected' : ''}>Monthly</option>
-                        <option value="one-day" ${model === 'one-day' ? 'selected' : ''}>One-Day Pass</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="price">Price (Credits)</label>
-                    <input type="number" id="price" name="price" value="${price}" min="1" />
-                </div>
-                <div class="form-group form-group-toggle">
-                    <label for="rolesEnabled">Enable Roles</label>
-                    <label class="switch">
-                        <input type="checkbox" id="rolesEnabled" name="rolesEnabled" ${rolesEnabled ? 'checked' : ''} />
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                ${rolesEnabled ? `
-                     <div class="form-group">
-                        <label for="defaultRole">Default Role for New Members</label>
-                        <select id="defaultRole" name="defaultRoleId">
-                            <option value="">None</option>
-                            ${roles.map(role => `<option value="${role.id}" ${defaultRoleId === role.id ? 'selected' : ''}>${role.name}</option>`).join('')}
-                        </select>
-                    </div>` : ''
-                }
-                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Settings</button>
-            </form>
-        </section>
-    `;
-}
-
-function renderRoleManagementSection(roles) {
-    return `
-        <section class="role-management-section">
-            <h2><i class="fas fa-user-tag"></i> Manage Roles</h2>
-            <form data-action="createRole" class="role-form">
-                 <input type="text" name="roleName" placeholder="New role name (e.g., VIP)" required />
-                 <input type="color" name="roleColor" value="#cccccc" title="Select role color" />
-                 <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Create Role</button>
-            </form>
-            <div class="role-list">
-                ${roles.length > 0 ? roles.map(role => `
-                    <div class="role-item" data-role-id="${role.id}">
-                        <span class="role-tag" style="background-color: ${role.color};">${role.name}</span>
-                        <button class="btn-delete-role" data-action="deleteRole">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                    </div>`).join('') : '<p>No roles created yet.</p>'}
-            </div>
-        </section>
-    `;
-}
-
-function renderMembersSection(members, roles, rolesEnabled) {
-    if (members.length === 0) {
-        return '<p>No members yet. Share your project and ask for tips to get started!</p>';
-    }
-    return `
-        <section class="members-section">
-            <h2><i class="fas fa-users"></i> Current Members</h2>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Member</th>
-                            <th>Total Paid (Credits)</th>
-                            <th>Membership Ends</th>
-                            ${rolesEnabled ? '<th>Role</th>' : ''}
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${members.map(member => renderMemberRow(member, roles, rolesEnabled)).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    `;
-}
-
-function renderMemberRow(member, roles, rolesEnabled) {
-    const { user, totalPaid, membershipEndDate, status, role } = member;
-    const getStatusClass = (s) => (s === 'Active' ? 'status-active' : s === 'Lapsed' ? 'status-lapsed' : s === 'Expiring Soon' ? 'status-warning' : '');
-    const endDateString = membershipEndDate ? membershipEndDate.toLocaleDateString() : 'N/A';
-    
-    return `
-        <tr>
-            <td>
-                <div class="member-info">
-                    <img src="https://images.websim.com/avatar/${user.username}" alt="${user.username}" />
-                    <a href="https://websim.com/@${user.username}" target="_blank" rel="noopener noreferrer">@${user.username}</a>
-                </div>
-            </td>
-            <td class="credits-cell">${totalPaid}</td>
-            <td>${endDateString}</td>
-            ${rolesEnabled ? `
-                <td>
-                    <select class="role-select" data-user-id="${user.id}">
-                        <option value="">No Role</option>
-                        ${roles.map(r => `<option value="${r.id}" ${role?.id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
-                    </select>
-                </td>` : ''
-            }
-            <td><span class="status-badge ${getStatusClass(status)}">${status}</span></td>
-        </tr>
-    `;
-}
-
-function renderMemberDashboard(member, settings) {
-    const { user, totalPaid, membershipEndDate, status, role } = member;
-    const getStatusClass = (s) => (s === 'Active' ? 'status-active' : s === 'Lapsed' ? 'status-lapsed' : s === 'Expiring Soon' ? 'status-warning' : '');
-    const endDateString = membershipEndDate ? membershipEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
-    const durationString = settings ? getMembershipDurationString(settings.pricingModel) : '';
-
-    return `
-        <div class="member-dashboard">
-            <header class="member-dashboard-header">
-                <img src="https://images.websim.com/avatar/${user.username}" alt="${user.username}" />
-                <h2><span>Welcome back,</span> @${user.username}!</h2>
-                ${role ? `<span class="role-tag" style="background-color: ${role.color}; margin-left: 15px;">${role.name}</span>` : ''}
-            </header>
-            <main class="main-content">
-                 <div class="member-stats">
-                    <div class="stat-card"><i class="fas fa-coins icon"></i><div class="stat-card-info"><h4>Total Paid</h4><p>${totalPaid} credits</p></div></div>
-                    <div class="stat-card"><i class="fas fa-calendar-check icon"></i><div class="stat-card-info"><h4>Membership Ends</h4><p>${endDateString}</p></div></div>
-                    <div class="stat-card"><i class="fas fa-info-circle icon"></i><div class="stat-card-info"><h4>Status</h4><p><span class="status-badge ${getStatusClass(status)}">${status}</span></p></div></div>
-                </div>
-                ${settings ? `
-                    <div class="extend-membership-section">
-                        <h3>Extend Your Membership</h3>
-                        <p>Continue supporting the creator and keep your benefits.</p>
-                        <div class="offer">Tip <strong>${settings.price} credits</strong> ${durationString}.</div>
-                        <div><button class="btn btn-primary btn-lg" data-action="extendMembership"><i class="fas fa-comment-dollar"></i> Extend Now</button></div>
-                    </div>` : ''
-                }
-            </main>
-        </div>
-    `;
-}
-
-function renderMembershipPromptSection(settings) {
-    if (!settings) {
-        return `
-            <div class="membership-prompt-section">
-                <i class="fas fa-info-circle icon"></i><h3>Membership Not Available</h3>
-                <p>The creator has not set up memberships for this project yet. Check back later!</p>
-            </div>`;
-    }
-    const { price, pricingModel } = settings;
-    const durationString = getMembershipDurationString(pricingModel);
-    return `
-        <div class="membership-prompt-section">
-            <i class="fas fa-star icon"></i><h3>Become a Member!</h3>
-            <p>Support the creator by becoming a member.</p>
-            <div class="offer">Tip <strong>${price} credits</strong> ${durationString}.</div>
-            <button class="btn btn-primary btn-lg" data-action="becomeMember"><i class="fas fa-comment-dollar"></i> Become a Member</button>
-        </div>
-    `;
-}
-
-export function renderLoading(root) {
-    root.innerHTML = `
-        <div class="loading-container">
-            <i class="fas fa-spinner fa-spin"></i>
-            <p>Loading Membership Panel...</p>
-        </div>`;
-}
-
-function renderError(root, error) {
-    root.innerHTML = `
-        <div class="error-container">
-            <i class="fas fa-exclamation-triangle"></i>
-            <p>Error: ${error}</p>
-        </div>`;
-}
-
-export function renderApp(root, state) {
-    if (state.loading) {
-        renderLoading(root);
-        return;
-    }
-    if (state.error) {
-        renderError(root, state.error);
-        return;
-    }
-
-    if (state.isCreator && state.viewMode === 'admin') {
-        root.innerHTML = renderAdminView(state);
-    } else {
-        root.innerHTML = renderUserView(state);
-    }
-}
-
