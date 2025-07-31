@@ -1,15 +1,14 @@
-import { calculateMembershipData, getMembershipDurationString } from './utils.js';
-import { WebsimSocket } from '@websim/websim-socket';
-import { MembershipPromptSection, MemberDashboard } from './UserViewComponents.jsx';
-import { SettingsSection, RoleManagementSection, MembersSection } from './AdminComponents.jsx';
+import { calculateMembershipData } from './utils.js';
+import { DatabaseService } from './services/database.js';
+import { WebsimService } from './services/websim.js';
+import { MembershipPromptSection } from './components/MembershipPrompt.js';
+import { SettingsSection } from './components/SettingsSection.js';
+import { RoleManagementSection } from './components/RoleManagement.js';
+import { MembersSection } from './components/MembersSection.js';
+import { MemberDashboard } from './components/MemberDashboard.js';
 
 const { useState, useEffect, useMemo, useCallback } = React;
 const { createRoot } = ReactDOM;
-
-const room = new WebsimSocket();
-const SETTINGS_COLLECTION = 'membership_settings_v1';
-const ROLES_COLLECTION = 'membership_roles_v1';
-const ASSIGNMENTS_COLLECTION = 'member_role_assignments_v1';
 
 const App = () => {
     const [isCreator, setIsCreator] = useState(false);
@@ -26,49 +25,33 @@ const App = () => {
     useEffect(() => {
         const initialize = async () => {
             try {
-                const [creatorData, user, project] = await Promise.all([
-                    window.websim.getCreator(),
-                    window.websim.getCurrentUser(),
-                    window.websim.getCurrentProject()
-                ]);
+                const { creatorData, user, project } = await WebsimService.initialize();
                 
                 setCreator(creatorData);
                 setCurrentUser(user);
                 const isUserCreator = user?.id === creatorData?.id;
                 setIsCreator(isUserCreator);
                 if (!isUserCreator) {
-                    setViewMode('member'); // Default for non-creators
+                    setViewMode('member');
                 }
 
-                // Fetch settings, roles, and assignments
                 const creatorUsername = creatorData.username;
                 const unsubscribers = [];
 
-                unsubscribers.push(room.collection(SETTINGS_COLLECTION).filter({ username: creatorUsername }).subscribe(settingsRecords => {
-                    const sortedSettings = settingsRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                    setSettings(sortedSettings[0] || null);
-                }));
+                // Subscribe to database changes
+                unsubscribers.push(DatabaseService.subscribeToSettings(creatorUsername, setSettings));
+                unsubscribers.push(DatabaseService.subscribeToRoles(creatorUsername, setRoles));
+                unsubscribers.push(DatabaseService.subscribeToAssignments(creatorUsername, setAssignments));
 
-                unsubscribers.push(room.collection(ROLES_COLLECTION).filter({ username: creatorUsername }).subscribe(setRoles));
-                unsubscribers.push(room.collection(ASSIGNMENTS_COLLECTION).filter({ username: creatorUsername }).subscribe(setAssignments));
-
+                // Fetch and subscribe to tip comments
+                const comments = await WebsimService.fetchTipComments(project.id);
+                setTipComments(comments);
                 
-                // Fetch all tip comments for the project
-                const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
-                if (!response.ok) throw new Error("Failed to fetch comments");
-                const data = await response.json();
-                const sortedComments = data.comments.data.map(c => c.comment).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-                setTipComments(sortedComments);
-                
-                // Listen for new tips in real-time
-                const commentUnsubscribe = window.websim.addEventListener('comment:created', (eventData) => {
-                    const newComment = eventData.comment;
-                    if (newComment.card_data && newComment.card_data.type === 'tip_comment') {
-                        setTipComments(prevComments => 
-                            [...prevComments, newComment]
-                            .sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-                        );
-                    }
+                const commentUnsubscribe = WebsimService.subscribeToNewTips((newComment) => {
+                    setTipComments(prevComments => 
+                        [...prevComments, newComment]
+                        .sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+                    );
                 });
                 unsubscribers.push(commentUnsubscribe);
                 
@@ -89,19 +72,11 @@ const App = () => {
                 if(unsubscribe) unsubscribe();
             });
         };
-
     }, []);
 
     const handleSaveSettings = useCallback(async (newSettings) => {
         try {
-            const list = await room.collection(SETTINGS_COLLECTION).filter({ username: creator.username }).getList();
-            const existingSettings = list[0];
-
-            if (existingSettings) {
-                 await room.collection(SETTINGS_COLLECTION).upsert({ ...existingSettings, ...newSettings });
-            } else {
-                 await room.collection(SETTINGS_COLLECTION).create(newSettings);
-            }
+            await DatabaseService.saveSettings(creator, newSettings);
         } catch (err) {
             console.error("Failed to save settings:", err);
             setError("Could not save settings.");
@@ -112,21 +87,17 @@ const App = () => {
         try {
             switch(action) {
                 case 'create':
-                    await room.collection(ROLES_COLLECTION).create(payload);
+                    await DatabaseService.createRole(payload);
                     break;
                 case 'delete':
-                    await room.collection(ROLES_COLLECTION).delete(payload.id);
-                    // Also unassign this role from any members
-                    const assignmentsToDelete = assignments.filter(a => a.role_id === payload.id);
-                    for (const assignment of assignmentsToDelete) {
-                        await room.collection(ASSIGNMENTS_COLLECTION).delete(assignment.id);
-                    }
+                    await DatabaseService.deleteRole(payload.id);
+                    await DatabaseService.deleteRoleAssignments(payload.id, assignments);
                     break;
                 case 'assign':
-                    await room.collection(ASSIGNMENTS_COLLECTION).upsert({ id: payload.userId, role_id: payload.roleId });
+                    await DatabaseService.assignRole(payload.userId, payload.roleId);
                     break;
                 case 'unassign':
-                    await room.collection(ASSIGNMENTS_COLLECTION).delete(payload.userId);
+                    await DatabaseService.unassignRole(payload.userId);
                     break;
             }
         } catch(err) {
@@ -171,13 +142,11 @@ const App = () => {
             const member = members.find(m => m.user.id === currentUser?.id);
             if (!member) return null;
             
-            // For member view, if roles are enabled and no role is assigned, assign default role if it exists
             if (settings?.rolesEnabled && !member.role && settings.defaultRoleId) {
                 const defaultRole = roles.find(r => r.id === settings.defaultRoleId);
                 return { ...member, role: defaultRole };
             }
             return member;
-
         }, [members, currentUser, isCreator, viewMode, settings, roles]);
 
         if (currentUserMembership) {
