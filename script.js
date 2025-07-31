@@ -1,3 +1,5 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createRoot } from 'react-dom/client';
 import { calculateMembershipData } from './utils.js';
 import { membershipService } from './services/membershipService.js';
 import { commentsService } from './services/commentsService.js';
@@ -7,9 +9,6 @@ import SettingsSection from './components/SettingsSection.js';
 import RoleManagementSection from './components/RoleManagementSection.js';
 import MembersSection from './components/MembersSection.js';
 import MemberDashboard from './components/MemberDashboard.js';
-
-const { useState, useEffect, useMemo, useCallback } = React;
-const { createRoot } = ReactDOM;
 
 const App = () => {
     const [isCreator, setIsCreator] = useState(false);
