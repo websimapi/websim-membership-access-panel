@@ -13,7 +13,7 @@ const App = () => {
     const [error, setError] = useState(null);
     const [settings, setSettings] = useState(null);
     const [tipComments, setTipComments] = useState([]);
-    const [viewAsUser, setViewAsUser] = useState(false);
+    const [viewMode, setViewMode] = useState('admin');
     
     useEffect(() => {
         const initialize = async () => {
@@ -25,7 +25,11 @@ const App = () => {
                 ]);
 
                 setCurrentUser(user);
-                setIsCreator(user?.id === creator?.id);
+                const isUserCreator = user?.id === creator?.id;
+                setIsCreator(isUserCreator);
+                if (!isUserCreator) {
+                    setViewMode('member'); // Default for non-creators
+                }
 
                 // Fetch settings for everyone.
                 room.collection(SETTINGS_COLLECTION).subscribe(settingsRecords => {
@@ -125,8 +129,11 @@ const App = () => {
 
     const UserView = () => {
         const currentUserMembership = useMemo(() => {
+            if (isCreator && viewMode === 'unpaid') {
+                return null;
+            }
             return members.find(m => m.user.id === currentUser?.id);
-        }, [members, currentUser]);
+        }, [members, currentUser, isCreator, viewMode]);
 
         if (currentUserMembership) {
             return <MemberDashboard member={currentUserMembership} settings={settings} />;
@@ -135,14 +142,19 @@ const App = () => {
         return <MembershipPromptSection settings={settings} />;
     };
 
-    if (isCreator && !viewAsUser) {
+    if (isCreator && viewMode === 'admin') {
         return (
             <div className="admin-panel">
                 <header>
                     <h1><i className="fas fa-users-cog"></i> Membership Admin Panel</h1>
-                    <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewAsUser(true)}>
-                        <i className="fas fa-eye"></i> View as User
-                    </button>
+                    <div className="view-as-buttons">
+                        <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewMode('member')}>
+                            <i className="fas fa-user-check"></i> View as Member
+                        </button>
+                        <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewMode('unpaid')}>
+                            <i className="fas fa-user"></i> View as Unpaid User
+                        </button>
+                    </div>
                 </header>
                 <main className="main-content">
                     <SettingsSection settings={settings} onSave={handleSaveSettings} />
@@ -156,8 +168,14 @@ const App = () => {
         <div className="user-view-wrapper">
              {isCreator && (
                 <div className="view-toggle-banner">
-                    <p><i className="fas fa-info-circle"></i> You are viewing the page as a regular user.</p>
-                    <button className="btn btn-secondary" onClick={() => setViewAsUser(false)}>
+                    <p>
+                        <i className="fas fa-info-circle"></i> 
+                        {viewMode === 'member' 
+                            ? 'You are viewing the page as a member.' 
+                            : 'You are viewing as an unpaid user.'
+                        }
+                    </p>
+                    <button className="btn btn-secondary" onClick={() => setViewMode('admin')}>
                         <i className="fas fa-user-shield"></i> Switch to Admin View
                     </button>
                 </div>
