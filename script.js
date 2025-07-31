@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { createRoot } from 'react-dom/client';
-import { calculateMembershipData } from './utils.js';
-import { membershipService } from './services/membershipService.js';
-import { commentsService } from './services/commentsService.js';
-import { VIEW_MODES } from './constants.js';
-import MembershipPromptSection from './components/MembershipPromptSection.js';
-import SettingsSection from './components/SettingsSection.js';
-import RoleManagementSection from './components/RoleManagementSection.js';
-import MembersSection from './components/MembersSection.js';
-import MemberDashboard from './components/MemberDashboard.js';
+import { calculateMembershipData, getMembershipDurationString } from './utils.js';
+import { WebsimSocket } from '@websim/websim-socket';
+import { MembershipPromptSection, SettingsSection, RoleManagementSection, MembersSection, MemberDashboard } from './components.js';
+
+const { useState, useEffect, useMemo, useCallback } = React;
+const { createRoot } = ReactDOM;
+
+const room = new WebsimSocket();
+const SETTINGS_COLLECTION = 'membership_settings_v1';
+const ROLES_COLLECTION = 'membership_roles_v1';
+const ASSIGNMENTS_COLLECTION = 'member_role_assignments_v1';
 
 const App = () => {
     const [isCreator, setIsCreator] = useState(false);
@@ -20,7 +20,7 @@ const App = () => {
     const [roles, setRoles] = useState([]);
     const [assignments, setAssignments] = useState([]);
     const [tipComments, setTipComments] = useState([]);
-    const [viewMode, setViewMode] = useState(VIEW_MODES.ADMIN);
+    const [viewMode, setViewMode] = useState('admin');
     
     useEffect(() => {
         const initialize = async () => {
@@ -36,27 +36,38 @@ const App = () => {
                 const isUserCreator = user?.id === creatorData?.id;
                 setIsCreator(isUserCreator);
                 if (!isUserCreator) {
-                    setViewMode(VIEW_MODES.MEMBER); // Default for non-creators
+                    setViewMode('member'); // Default for non-creators
                 }
 
-                // Set up subscriptions
-                const unsubscribers = [];
+                // Fetch settings, roles, and assignments
                 const creatorUsername = creatorData.username;
+                const unsubscribers = [];
 
-                unsubscribers.push(membershipService.subscribeToSettings(creatorUsername, setSettings));
-                unsubscribers.push(membershipService.subscribeToRoles(creatorUsername, setRoles));
-                unsubscribers.push(membershipService.subscribeToAssignments(creatorUsername, setAssignments));
+                unsubscribers.push(room.collection(SETTINGS_COLLECTION).filter({ username: creatorUsername }).subscribe(settingsRecords => {
+                    const sortedSettings = settingsRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    setSettings(sortedSettings[0] || null);
+                }));
 
-                // Fetch tip comments
-                const sortedComments = await commentsService.fetchTipComments(project.id);
+                unsubscribers.push(room.collection(ROLES_COLLECTION).filter({ username: creatorUsername }).subscribe(setRoles));
+                unsubscribers.push(room.collection(ASSIGNMENTS_COLLECTION).filter({ username: creatorUsername }).subscribe(setAssignments));
+
+                
+                // Fetch all tip comments for the project
+                const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
+                if (!response.ok) throw new Error("Failed to fetch comments");
+                const data = await response.json();
+                const sortedComments = data.comments.data.map(c => c.comment).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
                 setTipComments(sortedComments);
                 
-                // Listen for new tips
-                const commentUnsubscribe = commentsService.subscribeToNewTips((newComment) => {
-                    setTipComments(prevComments => 
-                        [...prevComments, newComment]
-                        .sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
-                    );
+                // Listen for new tips in real-time
+                const commentUnsubscribe = window.websim.addEventListener('comment:created', (eventData) => {
+                    const newComment = eventData.comment;
+                    if (newComment.card_data && newComment.card_data.type === 'tip_comment') {
+                        setTipComments(prevComments => 
+                            [...prevComments, newComment]
+                            .sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+                        );
+                    }
                 });
                 unsubscribers.push(commentUnsubscribe);
                 
@@ -82,7 +93,14 @@ const App = () => {
 
     const handleSaveSettings = useCallback(async (newSettings) => {
         try {
-            await membershipService.saveSettings(creator, newSettings);
+            const list = await room.collection(SETTINGS_COLLECTION).filter({ username: creator.username }).getList();
+            const existingSettings = list[0];
+
+            if (existingSettings) {
+                 await room.collection(SETTINGS_COLLECTION).upsert({ ...existingSettings, ...newSettings });
+            } else {
+                 await room.collection(SETTINGS_COLLECTION).create(newSettings);
+            }
         } catch (err) {
             console.error("Failed to save settings:", err);
             setError("Could not save settings.");
@@ -91,7 +109,25 @@ const App = () => {
 
     const handleRoleAction = useCallback(async (action, payload) => {
         try {
-            await membershipService.performRoleAction(action, payload, assignments);
+            switch(action) {
+                case 'create':
+                    await room.collection(ROLES_COLLECTION).create(payload);
+                    break;
+                case 'delete':
+                    await room.collection(ROLES_COLLECTION).delete(payload.id);
+                    // Also unassign this role from any members
+                    const assignmentsToDelete = assignments.filter(a => a.role_id === payload.id);
+                    for (const assignment of assignmentsToDelete) {
+                        await room.collection(ASSIGNMENTS_COLLECTION).delete(assignment.id);
+                    }
+                    break;
+                case 'assign':
+                    await room.collection(ASSIGNMENTS_COLLECTION).upsert({ id: payload.userId, role_id: payload.roleId });
+                    break;
+                case 'unassign':
+                    await room.collection(ASSIGNMENTS_COLLECTION).delete(payload.userId);
+                    break;
+            }
         } catch(err) {
             console.error(`Role action '${action}' failed:`, err);
             setError(`Could not perform role action: ${action}.`);
@@ -128,7 +164,7 @@ const App = () => {
 
     const UserView = () => {
         const currentUserMembership = useMemo(() => {
-            if (isCreator && viewMode === VIEW_MODES.UNPAID) {
+            if (isCreator && viewMode === 'unpaid') {
                 return null;
             }
             const member = members.find(m => m.user.id === currentUser?.id);
@@ -150,16 +186,16 @@ const App = () => {
         return <MembershipPromptSection settings={settings} />;
     };
 
-    if (isCreator && viewMode === VIEW_MODES.ADMIN) {
+    if (isCreator && viewMode === 'admin') {
         return (
             <div className="admin-panel">
                 <header>
                     <h1><i className="fas fa-users-cog"></i> Membership Admin Panel</h1>
                     <div className="view-as-buttons">
-                        <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewMode(VIEW_MODES.MEMBER)}>
+                        <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewMode('member')}>
                             <i className="fas fa-user-check"></i> View as Member
                         </button>
-                        <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewMode(VIEW_MODES.UNPAID)}>
+                        <button className="btn btn-secondary view-toggle-btn" onClick={() => setViewMode('unpaid')}>
                             <i className="fas fa-user"></i> View as Unpaid User
                         </button>
                     </div>
@@ -181,12 +217,12 @@ const App = () => {
                 <div className="view-toggle-banner">
                     <p>
                         <i className="fas fa-info-circle"></i> 
-                        {viewMode === VIEW_MODES.MEMBER 
+                        {viewMode === 'member' 
                             ? 'You are viewing the page as a member.' 
                             : 'You are viewing as an unpaid user.'
                         }
                     </p>
-                    <button className="btn btn-secondary" onClick={() => setViewMode(VIEW_MODES.ADMIN)}>
+                    <button className="btn btn-secondary" onClick={() => setViewMode('admin')}>
                         <i className="fas fa-user-shield"></i> Switch to Admin View
                     </button>
                 </div>
