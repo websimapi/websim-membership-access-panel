@@ -24,8 +24,7 @@ const App = () => {
                 ]);
 
                 setCurrentUser(user);
-                const isUserCreator = user?.id === creator?.id;
-                setIsCreator(isUserCreator);
+                setIsCreator(user?.id === creator?.id);
 
                 // Fetch settings for everyone.
                 room.collection(SETTINGS_COLLECTION).subscribe(settingsRecords => {
@@ -38,23 +37,27 @@ const App = () => {
                         setSettings(null);
                     }
                 });
+                
+                // Fetch all tip comments for the project
+                const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
+                if (!response.ok) throw new Error("Failed to fetch comments");
+                const data = await response.json();
+                const sortedComments = data.comments.data.map(c => c.comment).sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+                setTipComments(sortedComments);
+                
+                // Listen for new tips in real-time
+                const unsubscribe = window.websim.addEventListener('comment:created', (eventData) => {
+                    const newComment = eventData.comment;
+                    if (newComment.card_data && newComment.card_data.type === 'tip_comment') {
+                        setTipComments(prevComments => 
+                            [...prevComments, newComment]
+                            .sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+                        );
+                    }
+                });
+                
+                return unsubscribe;
 
-                if (isUserCreator) {
-                    // Fetch tip comments
-                    const response = await fetch(`/api/v1/projects/${project.id}/comments?only_tips=true&first=100`);
-                    if (!response.ok) throw new Error("Failed to fetch comments");
-                    const data = await response.json();
-                    setTipComments(data.comments.data.map(c => c.comment).sort((a,b) => new Date(a.created_at) - new Date(b.created_at)));
-                    
-                     // Listen for new tips
-                    window.websim.addEventListener('comment:created', (data) => {
-                        const newComment = data.comment;
-                        if (newComment.card_data && newComment.card_data.type === 'tip_comment') {
-                            setTipComments(prevComments => [...prevComments, newComment].sort((a,b) => new Date(a.created_at) - new Date(b.created_at)));
-                        }
-                    });
-
-                }
             } catch (err) {
                 console.error("Initialization failed:", err);
                 setError(err.message || "An unexpected error occurred.");
@@ -63,11 +66,12 @@ const App = () => {
             }
         };
 
-        initialize();
+        const unsubscribePromise = initialize();
         
         return () => {
-            // Unsubscribe when component unmounts if needed
-            // room.collection(SETTINGS_COLLECTION).subscribe returns an unsub function
+            unsubscribePromise.then(unsubscribe => {
+                if(unsubscribe) unsubscribe();
+            });
         };
 
     }, []);
@@ -118,21 +122,29 @@ const App = () => {
         );
     }
 
-    if (!isCreator) {
-        return <MembershipPromptSection settings={settings} />;
+    if (isCreator) {
+        return (
+            <div className="admin-panel">
+                <header>
+                    <h1><i className="fas fa-users-cog"></i> Membership Admin Panel</h1>
+                </header>
+                <main className="main-content">
+                    <SettingsSection settings={settings} onSave={handleSaveSettings} />
+                    <MembersSection members={members} />
+                </main>
+            </div>
+        );
+    }
+    
+    const currentUserMembership = useMemo(() => {
+        return members.find(m => m.user.id === currentUser?.id);
+    }, [members, currentUser]);
+
+    if (currentUserMembership) {
+        return <MemberDashboard member={currentUserMembership} settings={settings} />;
     }
 
-    return (
-        <div className="admin-panel">
-            <header>
-                <h1><i className="fas fa-users-cog"></i> Membership Admin Panel</h1>
-            </header>
-            <main className="main-content">
-                <SettingsSection settings={settings} onSave={handleSaveSettings} />
-                <MembersSection members={members} />
-            </main>
-        </div>
-    );
+    return <MembershipPromptSection settings={settings} />;
 };
 
 const MembershipPromptSection = ({ settings }) => {
@@ -268,6 +280,80 @@ const MemberRow = ({ member }) => {
             <td>{endDateString}</td>
             <td><span className={`status-badge ${getStatusClass()}`}>{status}</span></td>
         </tr>
+    );
+};
+
+const MemberDashboard = ({ member, settings }) => {
+    const { user, totalPaid, membershipEndDate, status } = member;
+
+    const getStatusClass = () => {
+        switch(status) {
+            case 'Active': return 'status-active';
+            case 'Lapsed': return 'status-lapsed';
+            case 'Expiring Soon': return 'status-warning';
+            default: return '';
+        }
+    };
+    
+    const endDateString = membershipEndDate ? membershipEndDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
+    
+    const handleExtendMembership = async () => {
+        const message = `Tipping ${settings.price} credits to extend membership!`;
+        const result = await window.websim.postComment({ content: message });
+        if (result.error) {
+            console.error("Could not open comment dialog:", result.error);
+        }
+    };
+    
+    const durationString = settings ? getMembershipDurationString(settings.pricingModel) : '';
+
+    return (
+        <div className="member-dashboard">
+            <header className="member-dashboard-header">
+                <img src={`https://images.websim.com/avatar/${user.username}`} alt={user.username} />
+                <h2><span>Welcome back,</span> @{user.username}!</h2>
+            </header>
+            <main className="main-content">
+                 <div className="member-stats">
+                    <div className="stat-card">
+                        <i className="fas fa-coins icon"></i>
+                        <div className="stat-card-info">
+                            <h4>Total Paid</h4>
+                            <p>{totalPaid} credits</p>
+                        </div>
+                    </div>
+                    <div className="stat-card">
+                         <i className="fas fa-calendar-check icon"></i>
+                        <div className="stat-card-info">
+                            <h4>Membership Ends</h4>
+                            <p>{endDateString}</p>
+                        </div>
+                    </div>
+                     <div className="stat-card">
+                         <i className="fas fa-info-circle icon"></i>
+                        <div className="stat-card-info">
+                            <h4>Status</h4>
+                            <p><span className={`status-badge ${getStatusClass()}`}>{status}</span></p>
+                        </div>
+                    </div>
+                </div>
+
+                {settings && (
+                    <div className="extend-membership-section">
+                        <h3>Extend Your Membership</h3>
+                         <p>Continue supporting the creator and keep your benefits.</p>
+                        <div className="offer">
+                            Tip <strong>{settings.price} credits</strong> {durationString}.
+                        </div>
+                        <div>
+                            <button className="btn btn-primary btn-lg" onClick={handleExtendMembership}>
+                               <i className="fas fa-comment-dollar"></i> Extend Now
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </main>
+        </div>
     );
 };
 
