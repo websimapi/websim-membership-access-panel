@@ -82,3 +82,4 @@ export const App = () => {
     );
 };
 
+window.App = App;

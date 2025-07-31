@@ -119,4 +119,3 @@ export const MemberDashboard = ({ member, settings }) => {
         </div>
     );
 };
-

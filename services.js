@@ -1,9 +1,28 @@
-import { WebsimSocket } from '@websim/websim-socket';
+let WebsimSocket;
 
-const room = new WebsimSocket();
+// Import WebsimSocket from global scope or dynamically
+const initWebsimSocket = async () => {
+    if (window.WebsimSocket) {
+        WebsimSocket = window.WebsimSocket;
+    } else {
+        // Try to import dynamically if needed
+        const module = await import('https://esm.websim.com/@websim/websim-socket');
+        WebsimSocket = module.WebsimSocket;
+    }
+    return new WebsimSocket();
+};
+
+let room;
 const SETTINGS_COLLECTION = 'membership_settings_v1';
 const ROLES_COLLECTION = 'membership_roles_v1';
 const ASSIGNMENTS_COLLECTION = 'member_role_assignments_v1';
+
+const getRoomInstance = async () => {
+    if (!room) {
+        room = await initWebsimSocket();
+    }
+    return room;
+};
 
 export class MembershipService {
     static async getInitialData() {
@@ -24,24 +43,30 @@ export class MembershipService {
     }
 
     static subscribeToSettings(creatorUsername, callback) {
-        return room.collection(SETTINGS_COLLECTION)
-            .filter({ username: creatorUsername })
-            .subscribe(settingsRecords => {
-                const sortedSettings = settingsRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                callback(sortedSettings[0] || null);
-            });
+        return getRoomInstance().then(roomInstance => 
+            roomInstance.collection(SETTINGS_COLLECTION)
+                .filter({ username: creatorUsername })
+                .subscribe(settingsRecords => {
+                    const sortedSettings = settingsRecords.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    callback(sortedSettings[0] || null);
+                })
+        );
     }
 
     static subscribeToRoles(creatorUsername, callback) {
-        return room.collection(ROLES_COLLECTION)
-            .filter({ username: creatorUsername })
-            .subscribe(callback);
+        return getRoomInstance().then(roomInstance =>
+            roomInstance.collection(ROLES_COLLECTION)
+                .filter({ username: creatorUsername })
+                .subscribe(callback)
+        );
     }
 
     static subscribeToAssignments(creatorUsername, callback) {
-        return room.collection(ASSIGNMENTS_COLLECTION)
-            .filter({ username: creatorUsername })
-            .subscribe(callback);
+        return getRoomInstance().then(roomInstance =>
+            roomInstance.collection(ASSIGNMENTS_COLLECTION)
+                .filter({ username: creatorUsername })
+                .subscribe(callback)
+        );
     }
 
     static subscribeToNewTips(callback) {
@@ -54,40 +79,45 @@ export class MembershipService {
     }
 
     static async saveSettings(creatorUsername, newSettings) {
-        const list = await room.collection(SETTINGS_COLLECTION)
+        const roomInstance = await getRoomInstance();
+        const list = await roomInstance.collection(SETTINGS_COLLECTION)
             .filter({ username: creatorUsername })
             .getList();
         const existingSettings = list[0];
 
         if (existingSettings) {
-            return await room.collection(SETTINGS_COLLECTION)
+            return await roomInstance.collection(SETTINGS_COLLECTION)
                 .upsert({ ...existingSettings, ...newSettings });
         } else {
-            return await room.collection(SETTINGS_COLLECTION)
+            return await roomInstance.collection(SETTINGS_COLLECTION)
                 .create(newSettings);
         }
     }
 
     static async createRole(payload) {
-        return await room.collection(ROLES_COLLECTION).create(payload);
+        const roomInstance = await getRoomInstance();
+        return await roomInstance.collection(ROLES_COLLECTION).create(payload);
     }
 
     static async deleteRole(roleId, assignments) {
-        await room.collection(ROLES_COLLECTION).delete(roleId);
+        const roomInstance = await getRoomInstance();
+        await roomInstance.collection(ROLES_COLLECTION).delete(roleId);
         // Also unassign this role from any members
         const assignmentsToDelete = assignments.filter(a => a.role_id === roleId);
         for (const assignment of assignmentsToDelete) {
-            await room.collection(ASSIGNMENTS_COLLECTION).delete(assignment.id);
+            await roomInstance.collection(ASSIGNMENTS_COLLECTION).delete(assignment.id);
         }
     }
 
     static async assignRole(userId, roleId) {
-        return await room.collection(ASSIGNMENTS_COLLECTION)
+        const roomInstance = await getRoomInstance();
+        return await roomInstance.collection(ASSIGNMENTS_COLLECTION)
             .upsert({ id: userId, role_id: roleId });
     }
 
     static async unassignRole(userId) {
-        return await room.collection(ASSIGNMENTS_COLLECTION).delete(userId);
+        const roomInstance = await getRoomInstance();
+        return await roomInstance.collection(ASSIGNMENTS_COLLECTION).delete(userId);
     }
 
     static async postMembershipComment(price) {
