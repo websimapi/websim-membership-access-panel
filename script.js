@@ -112,6 +112,9 @@ const App = () => {
                 case 'create':
                     await room.collection(ROLES_COLLECTION).create(payload);
                     break;
+                case 'update':
+                    await room.collection(ROLES_COLLECTION).upsert(payload);
+                    break;
                 case 'delete':
                     await room.collection(ROLES_COLLECTION).delete(payload.id);
                     // Also unassign this role from any members
@@ -339,20 +342,38 @@ const SettingsSection = ({ settings, roles, onSave }) => {
 const RoleManagementSection = ({ roles, onAction }) => {
     const [roleName, setRoleName] = useState('');
     const [roleColor, setRoleColor] = useState('#cccccc');
+    const [editingRole, setEditingRole] = useState(null);
 
-    const handleCreateRole = (e) => {
-        e.preventDefault();
-        if (roleName.trim()) {
-            onAction('create', { name: roleName.trim(), color: roleColor });
+    useEffect(() => {
+        if (editingRole) {
+            setRoleName(editingRole.name);
+            setRoleColor(editingRole.color);
+        } else {
             setRoleName('');
             setRoleColor('#cccccc');
         }
+    }, [editingRole]);
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (roleName.trim()) {
+            if (editingRole) {
+                 onAction('update', { ...editingRole, name: roleName.trim(), color: roleColor });
+            } else {
+                onAction('create', { name: roleName.trim(), color: roleColor });
+            }
+            setEditingRole(null);
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingRole(null);
     };
 
     return (
         <section className="role-management-section">
-            <h2><i className="fas fa-user-tag"></i> Manage Roles</h2>
-            <form onSubmit={handleCreateRole} className="role-form">
+            <h2><i className="fas fa-user-tag"></i> {editingRole ? 'Edit Role' : 'Manage Roles'}</h2>
+            <form onSubmit={handleSubmit} className="role-form">
                  <input 
                     type="text" 
                     value={roleName} 
@@ -366,13 +387,23 @@ const RoleManagementSection = ({ roles, onAction }) => {
                     onChange={e => setRoleColor(e.target.value)}
                     title="Select role color"
                 />
-                <button type="submit" className="btn btn-primary"><i className="fas fa-plus"></i> Create Role</button>
+                <button type="submit" className="btn btn-primary">
+                    <i className={`fas ${editingRole ? 'fa-save' : 'fa-plus'}`}></i> {editingRole ? 'Update Role' : 'Create Role'}
+                </button>
+                {editingRole && (
+                    <button type="button" onClick={handleCancelEdit} className="btn btn-secondary">
+                        Cancel
+                    </button>
+                )}
             </form>
             <div className="role-list">
                 {roles.length > 0 ? roles.map(role => (
                     <div key={role.id} className="role-item">
                         <span className="role-tag" style={{ backgroundColor: role.color }}>{role.name}</span>
-                        <button onClick={() => onAction('delete', { id: role.id })} className="btn-delete-role">
+                        <button onClick={() => setEditingRole(role)} className="btn-edit-role" title="Edit Role">
+                            <i className="fas fa-edit"></i>
+                        </button>
+                        <button onClick={() => onAction('delete', { id: role.id })} className="btn-delete-role" title="Delete Role">
                             <i className="fas fa-trash-alt"></i>
                         </button>
                     </div>
