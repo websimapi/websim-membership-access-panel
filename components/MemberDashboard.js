@@ -1,6 +1,6 @@
 import { getMembershipDurationString } from '../utils.js';
 
-export const MemberDashboard = ({ member, settings }) => {
+const MemberDashboard = ({ member, settings }) => {
     const { user, totalPaid, membershipEndDate, status, role } = member;
 
     const getStatusClass = () => {
@@ -76,4 +76,6 @@ export const MemberDashboard = ({ member, settings }) => {
         </div>
     );
 };
+
+export default MemberDashboard;
 

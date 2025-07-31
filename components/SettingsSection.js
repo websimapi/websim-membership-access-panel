@@ -1,12 +1,12 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 
-export const SettingsSection = ({ settings, roles, onSave }) => {
-    const [price, setPrice] = React.useState(100);
-    const [model, setModel] = React.useState('monthly');
-    const [rolesEnabled, setRolesEnabled] = React.useState(false);
-    const [defaultRoleId, setDefaultRoleId] = React.useState('');
+const SettingsSection = ({ settings, roles, onSave }) => {
+    const [price, setPrice] = useState(100);
+    const [model, setModel] = useState('monthly');
+    const [rolesEnabled, setRolesEnabled] = useState(false);
+    const [defaultRoleId, setDefaultRoleId] = useState('');
 
-    React.useEffect(() => {
+    useEffect(() => {
         if (settings) {
             setPrice(settings.price || 100);
             setModel(settings.pricingModel || 'monthly');
@@ -66,3 +66,5 @@ export const SettingsSection = ({ settings, roles, onSave }) => {
         </section>
     );
 };
+
+export default SettingsSection;

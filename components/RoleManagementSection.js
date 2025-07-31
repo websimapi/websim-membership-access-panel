@@ -1,6 +1,8 @@
+import { useState } from 'react';
+
 const { useState } = React;
 
-export const RoleManagementSection = ({ roles, onAction }) => {
+const RoleManagementSection = ({ roles, onAction }) => {
     const [roleName, setRoleName] = useState('');
     const [roleColor, setRoleColor] = useState('#cccccc');
 
@@ -45,4 +47,6 @@ export const RoleManagementSection = ({ roles, onAction }) => {
         </section>
     );
 };
+
+export default RoleManagementSection;
 

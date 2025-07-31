@@ -1,8 +1,6 @@
 import { getMembershipDurationString } from '../utils.js';
 
-const { useState, useEffect, useMemo, useCallback } = React;
-
-export const MembershipPromptSection = ({ settings }) => {
+const MembershipPromptSection = ({ settings }) => {
     const handleBecomeMember = async () => {
         const message = `Tipping ${settings.price} credits for membership!`;
         const result = await window.websim.postComment({ content: message });
@@ -39,4 +37,6 @@ export const MembershipPromptSection = ({ settings }) => {
         </div>
     );
 };
+
+export default MembershipPromptSection;
 
